@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "17698616303",
+    "project_id": "goldfish-pos",
+    "storage_bucket": "goldfish-pos.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:17698616303:android:c05ef84f2f681a157d7c1a",
+        "android_client_info": {
+          "package_name": "com.example.goldfish_pos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBMyDbLYLGNtr5zlWHLpajGOjSzn89RepU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
