@@ -19,6 +19,23 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
   final _commissionController = TextEditingController();
   Employee? _editingEmployee;
 
+  int _selectedColorValue = 0xFF1565C0; // default deep blue
+
+  static const List<({String label, int value})> _palette = [
+    (label: 'Deep Blue', value: 0xFF1565C0),
+    (label: 'Deep Purple', value: 0xFF6A1B9A),
+    (label: 'Teal', value: 0xFF00695C),
+    (label: 'Deep Orange', value: 0xFFE65100),
+    (label: 'Deep Red', value: 0xFFC62828),
+    (label: 'Green', value: 0xFF2E7D32),
+    (label: 'Indigo', value: 0xFF4527A0),
+    (label: 'Cyan', value: 0xFF00838F),
+    (label: 'Pink', value: 0xFFAD1457),
+    (label: 'Light Green', value: 0xFF558B2F),
+    (label: 'Navy', value: 0xFF283593),
+    (label: 'Brown', value: 0xFF4E342E),
+  ];
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -36,6 +53,7 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
     _addressController.clear();
     _commissionController.clear();
     _editingEmployee = null;
+    _selectedColorValue = 0xFF1565C0;
   }
 
   Future<void> _saveEmployee() async {
@@ -59,6 +77,7 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
         commissionPercentage:
             double.tryParse(_commissionController.text) ?? 0.0,
         isActive: true,
+        colorValue: _selectedColorValue,
         createdAt: _editingEmployee?.createdAt ?? now,
         updatedAt: now,
       );
@@ -92,6 +111,7 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
     _phoneController.text = employee.phone ?? '';
     _addressController.text = employee.address ?? '';
     _commissionController.text = employee.commissionPercentage.toString();
+    _selectedColorValue = employee.colorValue;
   }
 
   Future<void> _deleteEmployee(String employeeId) async {
@@ -199,6 +219,63 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    // Color picker
+                    Text(
+                      'Tile Color',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _palette.map((entry) {
+                        final selected = _selectedColorValue == entry.value;
+                        return Tooltip(
+                          message: entry.label,
+                          child: GestureDetector(
+                            onTap: () => setState(
+                              () => _selectedColorValue = entry.value,
+                            ),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: Color(entry.value),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: selected
+                                      ? Colors.black
+                                      : Colors.transparent,
+                                  width: 3,
+                                ),
+                                boxShadow: selected
+                                    ? [
+                                        BoxShadow(
+                                          color: Color(
+                                            entry.value,
+                                          ).withOpacity(0.6),
+                                          blurRadius: 6,
+                                          spreadRadius: 1,
+                                        ),
+                                      ]
+                                    : null,
+                              ),
+                              child: selected
+                                  ? const Icon(
+                                      Icons.check,
+                                      color: Colors.white,
+                                      size: 18,
+                                    )
+                                  : null,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
                     Row(
                       children: [
                         ElevatedButton.icon(
@@ -267,6 +344,18 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: employee.tileColor,
+                          child: Text(
+                            employee.name.isNotEmpty
+                                ? employee.name[0].toUpperCase()
+                                : '?',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
                         title: Text(employee.name),
                         subtitle: Text(
                           'Commission: ${employee.commissionPercentage}%',

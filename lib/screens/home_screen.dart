@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:goldfish_pos/models/employee_model.dart';
+import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/screens/admin/admin_dashboard_screen.dart';
 
 /// Main dashboard screen with role-based navigation.
@@ -13,6 +15,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   final user = FirebaseAuth.instance.currentUser;
+  final _repo = PosRepository();
 
   // For now, we'll assume the user role based on email domain or a custom claim
   // In production, fetch this from Firestore
@@ -159,101 +162,160 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 32),
 
-          // KPI Cards
-          _buildKPIs(),
-
-          const SizedBox(height: 32),
-
-          // Recent Activity
+          // Active Employees
           Text(
-            'Recent Activity',
+            'Active Employees',
             style: Theme.of(
               context,
             ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: 16),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: const Icon(
-                      Icons.check_circle,
-                      color: Colors.green,
-                    ),
-                    title: const Text('Transaction #1234'),
-                    subtitle: const Text('Today at 10:30 AM'),
-                    trailing: const Text('\$150.00'),
-                  ),
-                  const Divider(),
-                  ListTile(
-                    leading: const Icon(Icons.pending, color: Colors.orange),
-                    title: const Text('Pending Appointment'),
-                    subtitle: const Text('Today at 2:00 PM'),
-                  ),
-                ],
-              ),
-            ),
+          const SizedBox(height: 4),
+          Text(
+            'Tap an employee to start a new transaction',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
           ),
+          const SizedBox(height: 16),
+
+          _buildEmployeeGrid(),
         ],
       ),
     );
   }
 
-  Widget _buildKPIs() {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      childAspectRatio: 1.5,
-      children: [
-        _buildKpiCard('Today Sales', '\$2,450', Colors.green),
-        _buildKpiCard('Transactions', '18', Colors.blue),
-        _buildKpiCard('Pending', '3', Colors.orange),
-        _buildKpiCard('Customers', '42', Colors.purple),
-      ],
+  Widget _buildEmployeeGrid() {
+    return StreamBuilder<List<Employee>>(
+      stream: _repo.getEmployees(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(48.0),
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Error loading employees: ${snapshot.error}'),
+          );
+        }
+        final employees = (snapshot.data ?? [])
+            .where((e) => e.isActive)
+            .toList();
+        if (employees.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(48.0),
+              child: Text('No active employees found.'),
+            ),
+          );
+        }
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 6,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.0,
+          ),
+          itemCount: employees.length,
+          itemBuilder: (context, index) {
+            final employee = employees[index];
+            return _buildEmployeeTile(employee, employee.tileColor);
+          },
+        );
+      },
     );
   }
 
-  Widget _buildKpiCard(String title, String value, Color color) {
-    return Card(
-      elevation: 2,
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          gradient: LinearGradient(
-            colors: [color.withOpacity(0.1), color.withOpacity(0.05)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
+  Widget _buildEmployeeTile(Employee employee, Color color) {
+    return Material(
+      color: color,
+      borderRadius: BorderRadius.circular(12),
+      elevation: 3,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _startTransaction(employee),
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(12.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600,
-                  fontWeight: FontWeight.w500,
+              CircleAvatar(
+                radius: 28,
+                backgroundColor: Colors.white.withOpacity(0.25),
+                child: Text(
+                  employee.name.isNotEmpty
+                      ? employee.name[0].toUpperCase()
+                      : '?',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Text(
-                value,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: color,
+                employee.name,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                  height: 1.2,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.25),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  'New Transaction',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _startTransaction(Employee employee) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('New Transaction'),
+        content: Text(
+          'Starting a new transaction for ${employee.name}.\n\n'
+          'Transaction creation flow coming soon.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              // TODO: Navigate to transaction creation screen with employee pre-selected
+            },
+            child: const Text('Continue'),
+          ),
+        ],
       ),
     );
   }

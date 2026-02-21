@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 
 class Employee {
   final String id;
@@ -8,6 +9,10 @@ class Employee {
   final String? address;
   final double commissionPercentage; // Percentage for calculating commission
   final bool isActive;
+
+  /// Tile color stored as an ARGB integer (e.g. 0xFF1565C0).
+  /// Defaults to deep blue when not set.
+  final int colorValue;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -19,9 +24,13 @@ class Employee {
     this.address,
     this.commissionPercentage = 0.0,
     this.isActive = true,
+    this.colorValue = 0xFF1565C0,
     required this.createdAt,
     required this.updatedAt,
   });
+
+  /// Returns the tile color as a Flutter [Color].
+  Color get tileColor => Color(colorValue);
 
   factory Employee.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
@@ -33,6 +42,7 @@ class Employee {
       address: data['address'],
       commissionPercentage: (data['commissionPercentage'] ?? 0).toDouble(),
       isActive: data['isActive'] ?? true,
+      colorValue: (data['colorValue'] as int?) ?? 0xFF1565C0,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -47,6 +57,7 @@ class Employee {
       address: json['address'],
       commissionPercentage: (json['commissionPercentage'] ?? 0).toDouble(),
       isActive: json['isActive'] ?? true,
+      colorValue: (json['colorValue'] as int?) ?? 0xFF1565C0,
       createdAt: json['createdAt'] is Timestamp
           ? (json['createdAt'] as Timestamp).toDate()
           : DateTime.parse(
@@ -68,6 +79,7 @@ class Employee {
     'address': address,
     'commissionPercentage': commissionPercentage,
     'isActive': isActive,
+    'colorValue': colorValue,
     'createdAt': Timestamp.fromDate(createdAt),
     'updatedAt': Timestamp.fromDate(updatedAt),
   };
@@ -79,6 +91,7 @@ class Employee {
     'address': address,
     'commissionPercentage': commissionPercentage,
     'isActive': isActive,
+    'colorValue': colorValue,
     'createdAt': Timestamp.fromDate(createdAt),
     'updatedAt': Timestamp.fromDate(updatedAt),
   };
