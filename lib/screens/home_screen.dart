@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:goldfish_pos/models/customer_model.dart';
 import 'package:goldfish_pos/models/employee_model.dart';
 import 'package:goldfish_pos/models/transaction_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/screens/admin/admin_dashboard_screen.dart';
 import 'package:goldfish_pos/screens/transaction_create_screen.dart';
+import 'package:goldfish_pos/widgets/customer_check_in_dialog.dart';
 
 /// Main dashboard screen with role-based navigation.
 class HomeScreen extends StatefulWidget {
@@ -149,6 +152,10 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Top action bar ───────────────────────────────────────────
+          _buildActionBar(),
+          const SizedBox(height: 24),
+
           // Pending Transactions
           Row(
             crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -201,6 +208,71 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Compact horizontal action bar at the top-right of the dashboard.
+  /// Add future shortcut buttons alongside Check In.
+  Widget _buildActionBar() {
+    return Row(
+      children: [
+        const Spacer(),
+
+        // ── Action buttons ────────────────────────────────────────────
+        FilledButton.icon(
+          icon: const Icon(Icons.person_search_outlined, size: 18),
+          label: const Text('Check In'),
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.teal,
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          ),
+          onPressed: () async {
+            final customer = await showCustomerCheckIn(context);
+            if (customer != null && mounted) {
+              await _createPendingTransactionForCustomer(customer);
+            }
+          },
+        ),
+        // ── Add more action buttons here in the future ────────────────
+      ],
+    );
+  }
+
+  /// Creates a placeholder pending transaction in Firestore as soon as a
+  /// customer checks in. Staff then open it from the pending list to add items.
+  Future<void> _createPendingTransactionForCustomer(Customer customer) async {
+    try {
+      final now = DateTime.now();
+      final tx = Transaction(
+        id: '',
+        items: const [],
+        customerId: customer.id,
+        customerName: customer.name,
+        status: TransactionStatus.pending,
+        subtotal: 0,
+        totalAmount: 0,
+        createdAt: now,
+        updatedAt: now,
+      );
+      await _repo.createTransaction(tx);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${customer.name} checked in — transaction opened.'),
+            backgroundColor: Colors.teal,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Check-in failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildPendingTransactions() {
     return StreamBuilder<List<Transaction>>(
       stream: _repo.getTransactionsByStatus('pending'),
@@ -241,145 +313,148 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
         }
-        return Column(
-          children: pending.map((tx) => _buildPendingCard(tx)).toList(),
+        return SizedBox(
+          height: 110,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            itemCount: pending.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            itemBuilder: (_, i) => _buildPendingCard(pending[i]),
+          ),
         );
       },
     );
   }
 
   Widget _buildPendingCard(Transaction tx) {
-    final employees = tx.items.map((i) => i.employeeName).toSet().join(', ');
+    final employees = tx.items.map((i) => i.employeeName).toSet().join(' · ');
     final serviceNames = tx.items.map((i) => i.itemName).toList();
-    final servicesSummary = serviceNames.length <= 3
+    final servicesSummary = tx.items.isEmpty
+        ? 'No services yet'
+        : serviceNames.length <= 2
         ? serviceNames.join(', ')
-        : '${serviceNames.take(3).join(', ')} +${serviceNames.length - 3} more';
-    final createdTime = _formatTime(tx.createdAt);
+        : '${serviceNames.take(2).join(', ')} +${serviceNames.length - 2} more';
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () {
-          // Build a minimal Employee from the first item so the create screen
-          // knows which employee to default new items to.
-          final firstItem = tx.items.isNotEmpty ? tx.items.first : null;
-          final resumeEmployee = firstItem != null
-              ? Employee(
-                  id: firstItem.employeeId,
-                  name: firstItem.employeeName,
-                  createdAt: DateTime.now(),
-                  updatedAt: DateTime.now(),
-                )
-              : Employee(
-                  id: '',
-                  name: 'Unknown',
-                  createdAt: DateTime.now(),
-                  updatedAt: DateTime.now(),
-                );
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => TransactionCreateScreen(
-                defaultEmployee: resumeEmployee,
-                existingTransaction: tx,
-              ),
-            ),
-          );
-        },
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(0, 12, 12, 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // Orange pending indicator bar
-              Container(
-                width: 4,
-                height: 56,
-                margin: const EdgeInsets.only(right: 14),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade400,
-                  borderRadius: const BorderRadius.only(
-                    topRight: Radius.circular(4),
-                    bottomRight: Radius.circular(4),
-                  ),
+    return SizedBox(
+      width: 240,
+      child: Card(
+        margin: EdgeInsets.zero,
+        elevation: 3,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () {
+            final firstItem = tx.items.isNotEmpty ? tx.items.first : null;
+            final resumeEmployee = firstItem != null
+                ? Employee(
+                    id: firstItem.employeeId,
+                    name: firstItem.employeeName,
+                    createdAt: DateTime.now(),
+                    updatedAt: DateTime.now(),
+                  )
+                : Employee(
+                    id: '',
+                    name: '',
+                    createdAt: DateTime.now(),
+                    updatedAt: DateTime.now(),
+                  );
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => TransactionCreateScreen(
+                  defaultEmployee: resumeEmployee,
+                  existingTransaction: tx,
                 ),
               ),
-              // Content
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            );
+          },
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── Coloured header band ─────────────────────────────────
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                color: Colors.orange.shade400,
+                child: Row(
                   children: [
-                    Row(
-                      children: [
-                        if (tx.customerName != null) ...[
-                          const Icon(Icons.person_outline, size: 14),
-                          const SizedBox(width: 4),
-                          Text(
-                            tx.customerName!,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                        ],
-                        Text(
-                          createdTime,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade500,
-                          ),
+                    Expanded(
+                      child: Text(
+                        tx.customerName ?? 'Walk-in',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      servicesSummary,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey.shade700,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.badge_outlined,
-                          size: 12,
-                          color: Colors.grey.shade500,
+                    const SizedBox(width: 4),
+                    _ElapsedClock(createdAt: tx.createdAt),
+                    GestureDetector(
+                      onTap: () => _closePendingTransaction(tx),
+                      child: const Padding(
+                        padding: EdgeInsets.only(left: 6),
+                        child: Icon(
+                          Icons.close,
+                          size: 13,
+                          color: Colors.white70,
                         ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            employees,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              // Action buttons
-              IconButton(
-                icon: Icon(Icons.delete_outline, color: Colors.red.shade400),
-                tooltip: 'Void & close',
-                onPressed: () => _closePendingTransaction(tx),
+              // ── Body ─────────────────────────────────────────────────
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        servicesSummary,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade800,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (employees.isNotEmpty)
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.badge_outlined,
+                              size: 10,
+                              color: Colors.grey.shade500,
+                            ),
+                            const SizedBox(width: 3),
+                            Expanded(
+                              child: Text(
+                                employees,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey.shade500,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
         ),
-      ), // InkWell
+      ),
     );
   }
 
@@ -549,6 +624,83 @@ class _HomeScreenState extends State<HomeScreen> {
           Text('$title', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
           Text('Coming soon...', style: TextStyle(color: Colors.grey.shade600)),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Self-contained elapsed-time badge — owns its own 1-second Timer so only
+// this tiny widget repaints each tick, not the entire home screen.
+// ---------------------------------------------------------------------------
+class _ElapsedClock extends StatefulWidget {
+  final DateTime createdAt;
+  const _ElapsedClock({required this.createdAt});
+
+  @override
+  State<_ElapsedClock> createState() => _ElapsedClockState();
+}
+
+class _ElapsedClockState extends State<_ElapsedClock> {
+  late Timer _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  String get _label {
+    final elapsed = DateTime.now().difference(widget.createdAt);
+    final h = elapsed.inHours;
+    final m = elapsed.inMinutes.remainder(60);
+    final s = elapsed.inSeconds.remainder(60);
+    if (h > 0) {
+      return '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    }
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  Color get _color {
+    final minutes = DateTime.now().difference(widget.createdAt).inMinutes;
+    if (minutes < 15) return Colors.green.shade700;
+    if (minutes < 30) return Colors.orange.shade700;
+    return Colors.red.shade700;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _color;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.timer_outlined, size: 11, color: color),
+          const SizedBox(width: 3),
+          Text(
+            _label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: color,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
         ],
       ),
     );

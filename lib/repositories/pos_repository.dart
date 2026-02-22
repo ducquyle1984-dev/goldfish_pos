@@ -4,6 +4,7 @@ import 'package:goldfish_pos/models/item_model.dart';
 import 'package:goldfish_pos/models/employee_model.dart';
 import 'package:goldfish_pos/models/customer_model.dart';
 import 'package:goldfish_pos/models/payment_method_model.dart';
+import 'package:goldfish_pos/models/reward_settings_model.dart';
 import 'package:goldfish_pos/models/transaction_model.dart';
 
 class PosRepository {
@@ -464,6 +465,44 @@ class PosRepository {
       });
     } catch (e) {
       throw Exception('Failed to add discount: $e');
+    }
+  }
+
+  // ==================== Reward Settings ====================
+
+  Future<RewardSettings> getRewardSettings() async {
+    try {
+      final doc = await _firestore
+          .collection('settings')
+          .doc('rewardProgram')
+          .get();
+      if (doc.exists) return RewardSettings.fromFirestore(doc);
+      return const RewardSettings(); // defaults
+    } catch (e) {
+      throw Exception('Failed to get reward settings: $e');
+    }
+  }
+
+  Future<void> updateRewardSettings(RewardSettings settings) async {
+    try {
+      await _firestore
+          .collection('settings')
+          .doc('rewardProgram')
+          .set(settings.toFirestore());
+    } catch (e) {
+      throw Exception('Failed to update reward settings: $e');
+    }
+  }
+
+  /// Atomically adjusts a customer's reward points (positive to add, negative to redeem).
+  Future<void> adjustCustomerPoints(String customerId, double delta) async {
+    try {
+      await _firestore.collection('customers').doc(customerId).update({
+        'rewardPoints': FieldValue.increment(delta),
+        'updatedAt': Timestamp.now(),
+      });
+    } catch (e) {
+      throw Exception('Failed to adjust customer points: $e');
     }
   }
 }

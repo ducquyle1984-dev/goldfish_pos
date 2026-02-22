@@ -3,8 +3,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class Customer {
   final String id;
   final String name;
+  final String phone; // Required
+  final int birthMonth; // 1–12, required (for birthday promotions)
+  final int birthDay; // 1–31, required (for birthday promotions)
   final String? email;
-  final String? phone;
   final String? address;
   final double rewardPoints; // Accumulated reward points
   final bool isActive;
@@ -14,8 +16,10 @@ class Customer {
   Customer({
     required this.id,
     required this.name,
+    required this.phone,
+    required this.birthMonth,
+    required this.birthDay,
     this.email,
-    this.phone,
     this.address,
     this.rewardPoints = 0.0,
     this.isActive = true,
@@ -23,13 +27,37 @@ class Customer {
     required this.updatedAt,
   });
 
+  /// Display-friendly birthday string, e.g. "Mar 15".
+  String get birthDateDisplay {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final m = (birthMonth >= 1 && birthMonth <= 12)
+        ? months[birthMonth - 1]
+        : '??';
+    return '$m $birthDay';
+  }
+
   factory Customer.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     return Customer(
       id: doc.id,
       name: data['name'] ?? '',
+      phone: data['phone'] ?? '',
+      birthMonth: (data['birthMonth'] ?? 1) as int,
+      birthDay: (data['birthDay'] ?? 1) as int,
       email: data['email'],
-      phone: data['phone'],
       address: data['address'],
       rewardPoints: (data['rewardPoints'] ?? 0).toDouble(),
       isActive: data['isActive'] ?? true,
@@ -42,8 +70,10 @@ class Customer {
     return Customer(
       id: json['id'] ?? '',
       name: json['name'] ?? '',
+      phone: json['phone'] ?? '',
+      birthMonth: (json['birthMonth'] ?? 1) as int,
+      birthDay: (json['birthDay'] ?? 1) as int,
       email: json['email'],
-      phone: json['phone'],
       address: json['address'],
       rewardPoints: (json['rewardPoints'] ?? 0).toDouble(),
       isActive: json['isActive'] ?? true,
@@ -63,8 +93,10 @@ class Customer {
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
-    'email': email,
     'phone': phone,
+    'birthMonth': birthMonth,
+    'birthDay': birthDay,
+    'email': email,
     'address': address,
     'rewardPoints': rewardPoints,
     'isActive': isActive,
@@ -74,12 +106,40 @@ class Customer {
 
   Map<String, dynamic> toFirestore() => {
     'name': name,
-    'email': email,
     'phone': phone,
+    'birthMonth': birthMonth,
+    'birthDay': birthDay,
+    'email': email,
     'address': address,
     'rewardPoints': rewardPoints,
     'isActive': isActive,
     'createdAt': Timestamp.fromDate(createdAt),
     'updatedAt': Timestamp.fromDate(updatedAt),
   };
+
+  Customer copyWith({
+    String? name,
+    String? phone,
+    int? birthMonth,
+    int? birthDay,
+    String? email,
+    String? address,
+    double? rewardPoints,
+    bool? isActive,
+    DateTime? updatedAt,
+  }) {
+    return Customer(
+      id: id,
+      name: name ?? this.name,
+      phone: phone ?? this.phone,
+      birthMonth: birthMonth ?? this.birthMonth,
+      birthDay: birthDay ?? this.birthDay,
+      email: email ?? this.email,
+      address: address ?? this.address,
+      rewardPoints: rewardPoints ?? this.rewardPoints,
+      isActive: isActive ?? this.isActive,
+      createdAt: createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
 }

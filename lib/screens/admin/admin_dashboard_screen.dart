@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:goldfish_pos/screens/admin/customer_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/employee_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/item_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/payment_method_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/item_category_management_screen.dart';
+import 'package:goldfish_pos/screens/admin/reward_settings_screen.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
@@ -82,6 +84,28 @@ class AdminDashboardScreen extends StatelessWidget {
                     MaterialPageRoute(
                       builder: (context) =>
                           const ItemCategoryManagementScreen(),
+                    ),
+                  ),
+                ),
+                _AdminCard(
+                  title: 'Customers',
+                  icon: Icons.people,
+                  color: Colors.teal,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const CustomerManagementScreen(),
+                    ),
+                  ),
+                ),
+                _AdminCard(
+                  title: 'Reward Points',
+                  icon: Icons.star,
+                  color: Colors.amber,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const RewardSettingsScreen(),
                     ),
                   ),
                 ),

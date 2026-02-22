@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:goldfish_pos/models/customer_model.dart';
+import 'package:goldfish_pos/models/reward_settings_model.dart';
 import 'package:goldfish_pos/models/transaction_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 
@@ -22,17 +24,39 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
   String? _selectedPaymentMethodId;
   String? _selectedPaymentMethodName;
 
+  // Reward points
+  final _rewardPointsCtrl = TextEditingController();
+  Customer? _customer;
+  RewardSettings _rewardSettings = const RewardSettings();
+
   bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
     _transaction = widget.transaction;
+    _loadCustomerAndSettings();
+  }
+
+  Future<void> _loadCustomerAndSettings() async {
+    final futures = await Future.wait([
+      _repo.getRewardSettings(),
+      if (_transaction.customerId != null)
+        _repo.getCustomer(_transaction.customerId!),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _rewardSettings = futures[0] as RewardSettings;
+      if (_transaction.customerId != null && futures.length > 1) {
+        _customer = futures[1] as Customer?;
+      }
+    });
   }
 
   @override
   void dispose() {
     _paymentAmountController.dispose();
+    _rewardPointsCtrl.dispose();
     super.dispose();
   }
 
@@ -73,15 +97,16 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
         setState(() => _transaction = updated);
       }
 
-      // If fully paid, mark as paid
-      if (_transaction.isFullyPaid) {
+      // If fully paid, mark as paid (and award reward points)
+      final wasFullyPaid = _transaction.isFullyPaid;
+      if (wasFullyPaid) {
         await _markAsPaid();
       }
 
       _paymentAmountController.clear();
       setState(() => _selectedPaymentMethodId = null);
 
-      if (mounted) {
+      if (!wasFullyPaid && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Payment added successfully.'),
@@ -93,6 +118,73 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
       _showError('Failed to add payment: $e');
     } finally {
       setState(() => _isSaving = false);
+    }
+  }
+
+  /// Apply reward points as a payment (1 point = \$1).
+  Future<void> _applyRewardPoints() async {
+    final customer = _customer;
+    if (customer == null) return;
+
+    final points = double.tryParse(_rewardPointsCtrl.text);
+    if (points == null || points <= 0) {
+      _showError('Enter a valid number of points.');
+      return;
+    }
+    final balance = _transaction.balanceRemaining;
+    final maxRedeemable = points
+        .clamp(0.0, customer.rewardPoints)
+        .clamp(0.0, balance);
+    if (maxRedeemable <= 0) {
+      _showError('No points available to redeem.');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      // Deduct points from customer immediately
+      await _repo.adjustCustomerPoints(customer.id, -maxRedeemable);
+
+      // Record as a payment
+      final payment = Payment(
+        paymentMethodId: 'reward_points',
+        paymentMethodName: 'Reward Points',
+        amountPaid: maxRedeemable,
+        paymentDate: DateTime.now(),
+      );
+      await _repo.addPaymentToTransaction(_transaction.id, payment);
+
+      // Reload transaction and customer
+      final results = await Future.wait([
+        _repo.getTransaction(_transaction.id),
+        _repo.getCustomer(customer.id),
+      ]);
+      if (mounted) {
+        setState(() {
+          if (results[0] != null) _transaction = results[0] as Transaction;
+          _customer = results[1] as Customer?;
+        });
+      }
+
+      // If fully paid, mark as paid and award new points
+      final wasFullyPaid = _transaction.isFullyPaid;
+      if (wasFullyPaid) await _markAsPaid();
+
+      _rewardPointsCtrl.clear();
+      if (!wasFullyPaid && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${maxRedeemable.toStringAsFixed(0)} point(s) redeemed (\$${maxRedeemable.toStringAsFixed(2)} off).',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      _showError('Failed to redeem points: $e');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -117,6 +209,35 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
       updatedAt: DateTime.now(),
     );
     await _repo.updateTransaction(paid);
+
+    // Award reward points: only count cash/card payments (not reward point payments)
+    if (_customer != null && _rewardSettings.enabled) {
+      final cashPaid = updated.payments
+          .where((p) => p.paymentMethodId != 'reward_points')
+          .fold<double>(0, (s, p) => s + p.amountPaid);
+      final pointsEarned = _rewardSettings.pointsEarned(cashPaid);
+      if (pointsEarned > 0) {
+        await _repo.adjustCustomerPoints(
+          _customer!.id,
+          pointsEarned.toDouble(),
+        );
+        if (mounted) {
+          _showSuccess(
+            'Transaction paid! ${_customer!.name} earned $pointsEarned reward point(s).',
+          );
+        }
+        // Refresh local customer and update transaction state
+        final refreshed = await _repo.getCustomer(_customer!.id);
+        if (mounted) {
+          setState(() {
+            _transaction = paid;
+            _customer = refreshed;
+          });
+        }
+        return;
+      }
+    }
+
     if (mounted) {
       setState(() => _transaction = paid);
       _showSuccess('Transaction marked as paid!');
@@ -232,6 +353,25 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
             child: ListTile(
               leading: const Icon(Icons.person),
               title: Text(_transaction.customerName!),
+              subtitle: _customer != null
+                  ? Row(
+                      children: [
+                        Icon(
+                          Icons.star,
+                          size: 14,
+                          color: Colors.amber.shade700,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${_customer!.rewardPoints.toStringAsFixed(0)} reward points',
+                          style: TextStyle(
+                            color: Colors.amber.shade900,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    )
+                  : null,
             ),
           ),
           const SizedBox(height: 20),
@@ -351,7 +491,9 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
                     (p) => _buildTotalRow(
                       'Paid (${p.paymentMethodName})',
                       p.amountPaid,
-                      color: Colors.blue,
+                      color: p.paymentMethodId == 'reward_points'
+                          ? Colors.amber.shade700
+                          : Colors.blue,
                     ),
                   ),
                   const Divider(),
@@ -372,6 +514,96 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
 
         // Payment section
         if (!isPaid && !isVoided) ...[
+          // Reward points redemption (only shown when customer has points)
+          if (_customer != null &&
+              _rewardSettings.enabled &&
+              _customer!.rewardPoints > 0 &&
+              balance > 0) ...[
+            _buildSectionHeader(Icons.star_outlined, 'Reward Points'),
+            const SizedBox(height: 8),
+            Card(
+              color: Colors.amber.shade50,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.star,
+                          color: Colors.amber.shade700,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '${_customer!.rewardPoints.toStringAsFixed(0)} points available',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Colors.amber.shade900,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '1 pt = \$1.00',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _rewardPointsCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: false,
+                            ),
+                            decoration: InputDecoration(
+                              labelText: 'Points to redeem',
+                              prefixIcon: const Icon(Icons.star_border),
+                              border: const OutlineInputBorder(),
+                              isDense: true,
+                              suffixIcon: TextButton(
+                                onPressed: () {
+                                  final max = _customer!.rewardPoints.clamp(
+                                    0.0,
+                                    balance,
+                                  );
+                                  _rewardPointsCtrl.text = max.toStringAsFixed(
+                                    0,
+                                  );
+                                },
+                                child: const Text('Max'),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.amber,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 14,
+                              horizontal: 16,
+                            ),
+                          ),
+                          onPressed: _isSaving ? null : _applyRewardPoints,
+                          child: const Text('Redeem'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
           _buildSectionHeader(Icons.payment_outlined, 'Add Payment'),
           const SizedBox(height: 8),
           Card(

@@ -6,6 +6,7 @@ import 'package:goldfish_pos/models/item_model.dart';
 import 'package:goldfish_pos/models/payment_method_model.dart';
 import 'package:goldfish_pos/models/transaction_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
+import 'package:goldfish_pos/widgets/customer_check_in_dialog.dart';
 
 // ---------------------------------------------------------------------------
 // Local draft line‑item (not the Firestore model)
@@ -152,6 +153,11 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
 
   // ── Item actions ─────────────────────────────────────────────────────────
   void _addItemDirectly(Item item, List<Employee> employees) {
+    // Require a real employee to be selected before a quick-add.
+    if (_activeEmployee.id.isEmpty) {
+      _snack('Please select a technician first.', error: true);
+      return;
+    }
     setState(() {
       _lineItems.add(
         _LineItem(
@@ -406,6 +412,18 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
   Future<void> _saveTransaction({required bool asPending}) async {
     if (_lineItems.isEmpty) {
       _snack('Add at least one service or item.', error: true);
+      return;
+    }
+
+    // Guard against any item that has no real employee assigned.
+    final unassigned = _lineItems.where((l) => l.employee.id.isEmpty).toList();
+    if (unassigned.isNotEmpty) {
+      _snack(
+        'Every item must have a technician assigned. '
+        'Please remove or reassign: '
+        '${unassigned.map((l) => l.item.name).join(', ')}',
+        error: true,
+      );
       return;
     }
 
@@ -1253,36 +1271,6 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
     );
   }
 
-  Future<Employee?> _pickEmployee(
-    BuildContext context,
-    List<Employee> employees,
-    Employee current,
-  ) {
-    return showDialog<Employee>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Assign Employee'),
-        children: employees
-            .map(
-              (e) => SimpleDialogOption(
-                onPressed: () => Navigator.pop(ctx, e),
-                child: Row(
-                  children: [
-                    if (e.id == current.id)
-                      const Icon(Icons.check, size: 16)
-                    else
-                      const SizedBox(width: 16),
-                    const SizedBox(width: 8),
-                    Text(e.name),
-                  ],
-                ),
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
   Future<_ScreenData> _loadScreenData() async {
     final results = await Future.wait([
       _repo.getItems().first,
@@ -1466,15 +1454,8 @@ class _CustomerSearchField extends StatefulWidget {
 
 class _CustomerSearchFieldState extends State<_CustomerSearchField> {
   Future<void> _openSearch() async {
-    final result = await showDialog<Customer?>(
-      context: context,
-      builder: (ctx) => _CustomerSearchDialog(customers: widget.customers),
-    );
-    // result == null means dialog was dismissed without selection
-    // result == _CustomerSearchDialog.kClearSentinel means clear
-    if (result == _CustomerSearchDialog.kClearSentinel) {
-      widget.onChanged(null);
-    } else if (result != null) {
+    final result = await showCustomerCheckIn(context);
+    if (result != null) {
       widget.onChanged(result);
     }
   }
@@ -1521,6 +1502,9 @@ class _CustomerSearchDialog extends StatefulWidget {
   static final kClearSentinel = Customer(
     id: '__clear__',
     name: '',
+    phone: '',
+    birthMonth: 1,
+    birthDay: 1,
     isActive: true,
     rewardPoints: 0,
     createdAt: DateTime(0),
@@ -1549,7 +1533,7 @@ class _CustomerSearchDialogState extends State<_CustomerSearchDialog> {
     if (q.isEmpty) return widget.customers;
     return widget.customers.where((c) {
       return c.name.toLowerCase().contains(q) ||
-          (c.phone?.toLowerCase().contains(q) ?? false);
+          c.phone.toLowerCase().contains(q);
     }).toList();
   }
 
@@ -1621,7 +1605,7 @@ class _CustomerSearchDialogState extends State<_CustomerSearchDialog> {
                         return ListTile(
                           leading: const Icon(Icons.person_outline),
                           title: Text(c.name),
-                          subtitle: c.phone != null ? Text(c.phone!) : null,
+                          subtitle: c.phone.isNotEmpty ? Text(c.phone) : null,
                           onTap: () => Navigator.pop(context, c),
                         );
                       },
