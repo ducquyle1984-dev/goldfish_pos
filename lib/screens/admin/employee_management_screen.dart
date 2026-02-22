@@ -19,21 +19,21 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
   final _commissionController = TextEditingController();
   Employee? _editingEmployee;
 
-  int _selectedColorValue = 0xFF1565C0; // default deep blue
+  int _selectedColorValue = 0xFF90CAF9; // default pastel blue
 
   static const List<({String label, int value})> _palette = [
-    (label: 'Deep Blue', value: 0xFF1565C0),
-    (label: 'Deep Purple', value: 0xFF6A1B9A),
-    (label: 'Teal', value: 0xFF00695C),
-    (label: 'Deep Orange', value: 0xFFE65100),
-    (label: 'Deep Red', value: 0xFFC62828),
-    (label: 'Green', value: 0xFF2E7D32),
-    (label: 'Indigo', value: 0xFF4527A0),
-    (label: 'Cyan', value: 0xFF00838F),
-    (label: 'Pink', value: 0xFFAD1457),
-    (label: 'Light Green', value: 0xFF558B2F),
-    (label: 'Navy', value: 0xFF283593),
-    (label: 'Brown', value: 0xFF4E342E),
+    (label: 'Pastel Blue', value: 0xFF90CAF9),
+    (label: 'Pastel Lavender', value: 0xFFCE93D8),
+    (label: 'Pastel Mint', value: 0xFF80CBC4),
+    (label: 'Pastel Peach', value: 0xFFFFAB91),
+    (label: 'Pastel Rose', value: 0xFFEF9A9A),
+    (label: 'Pastel Sage', value: 0xFFA5D6A7),
+    (label: 'Pastel Periwinkle', value: 0xFF9FA8DA),
+    (label: 'Pastel Sky', value: 0xFF80DEEA),
+    (label: 'Pastel Pink', value: 0xFFF48FB1),
+    (label: 'Pastel Lime', value: 0xFFC5E1A5),
+    (label: 'Pastel Steel', value: 0xFF81D4FA),
+    (label: 'Pastel Taupe', value: 0xFFBCAAA4),
   ];
 
   @override
@@ -53,7 +53,7 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
     _addressController.clear();
     _commissionController.clear();
     _editingEmployee = null;
-    _selectedColorValue = 0xFF1565C0;
+    _selectedColorValue = 0xFF90CAF9;
   }
 
   Future<void> _saveEmployee() async {

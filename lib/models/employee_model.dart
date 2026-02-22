@@ -24,7 +24,7 @@ class Employee {
     this.address,
     this.commissionPercentage = 0.0,
     this.isActive = true,
-    this.colorValue = 0xFF1565C0,
+    this.colorValue = 0xFF90CAF9,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -42,7 +42,7 @@ class Employee {
       address: data['address'],
       commissionPercentage: (data['commissionPercentage'] ?? 0).toDouble(),
       isActive: data['isActive'] ?? true,
-      colorValue: (data['colorValue'] as int?) ?? 0xFF1565C0,
+      colorValue: (data['colorValue'] as int?) ?? 0xFF90CAF9,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -57,7 +57,7 @@ class Employee {
       address: json['address'],
       commissionPercentage: (json['commissionPercentage'] ?? 0).toDouble(),
       isActive: json['isActive'] ?? true,
-      colorValue: (json['colorValue'] as int?) ?? 0xFF1565C0,
+      colorValue: (json['colorValue'] as int?) ?? 0xFF90CAF9,
       createdAt: json['createdAt'] is Timestamp
           ? (json['createdAt'] as Timestamp).toDate()
           : DateTime.parse(
