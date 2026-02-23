@@ -248,6 +248,12 @@ class PosRepository {
         );
   }
 
+  /// Fetches ALL customers (active and inactive) for reporting purposes.
+  Future<List<Customer>> getAllCustomers() async {
+    final snapshot = await _firestore.collection('customers').get();
+    return snapshot.docs.map((doc) => Customer.fromFirestore(doc)).toList();
+  }
+
   // ==================== Payment Method Operations ====================
 
   Future<String> createPaymentMethod(PaymentMethod paymentMethod) async {

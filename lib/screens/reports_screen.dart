@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:goldfish_pos/models/customer_model.dart';
 import 'package:goldfish_pos/models/item_category_model.dart';
 import 'package:goldfish_pos/models/transaction_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
@@ -24,6 +25,9 @@ class _ReportsScreenState extends State<ReportsScreen>
   bool _loading = false;
   List<Transaction> _transactions = [];
   String? _error;
+
+  // ── Customer data ─────────────────────────────────────────────────────────
+  List<Customer> _customers = [];
 
   // ── Filter state ──────────────────────────────────────────────────────────
   List<ItemCategory> _categories = [];
@@ -108,7 +112,7 @@ class _ReportsScreenState extends State<ReportsScreen>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 2, vsync: this);
+    _tab = TabController(length: 3, vsync: this);
     _load();
   }
 
@@ -127,9 +131,11 @@ class _ReportsScreenState extends State<ReportsScreen>
     });
     try {
       final txns = await _repo.getTransactionsByDateRange(_startDate, _endDate);
+      final customers = await _repo.getAllCustomers();
       if (mounted) {
         setState(() {
           _transactions = txns;
+          _customers = customers;
         });
       }
     } catch (e, st) {
@@ -583,7 +589,8 @@ class _ReportsScreenState extends State<ReportsScreen>
                 indicatorColor: Colors.white,
                 tabs: const [
                   Tab(text: 'Daily Report'),
-                  Tab(text: 'Payroll Report'),
+                  Tab(text: 'Payroll'),
+                  Tab(text: 'Customers'),
                 ],
               ),
             ],
@@ -614,6 +621,15 @@ class _ReportsScreenState extends State<ReportsScreen>
                       transactions: _filteredTransactions,
                       currency: _currency,
                       dateLabel: _dateLabel,
+                    ),
+                    _CustomerReport(
+                      transactions: _filteredTransactions,
+                      customers: _customers,
+                      startDate: _startDate,
+                      endDate: _endDate,
+                      currency: _currency,
+                      dateLabel: _dateLabel,
+                      timeLabel: _timeLabel,
                     ),
                   ],
                 ),
@@ -1324,6 +1340,551 @@ class _SummaryCard extends StatelessWidget {
             label,
             style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ===========================================================================
+// Customer Report Tab
+// ===========================================================================
+class _CustomerReport extends StatefulWidget {
+  final List<Transaction> transactions;
+  final List<Customer> customers;
+  final DateTime startDate;
+  final DateTime endDate;
+  final NumberFormat currency;
+  final DateFormat dateLabel;
+  final DateFormat timeLabel;
+
+  const _CustomerReport({
+    required this.transactions,
+    required this.customers,
+    required this.startDate,
+    required this.endDate,
+    required this.currency,
+    required this.dateLabel,
+    required this.timeLabel,
+  });
+
+  @override
+  State<_CustomerReport> createState() => _CustomerReportState();
+}
+
+class _CustomerReportState extends State<_CustomerReport> {
+  final _searchCtrl = TextEditingController();
+  String _search = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Build a map: customerId → Customer (for quick lookup)
+    final customerMap = {for (final c in widget.customers) c.id: c};
+
+    // Aggregate per-customer stats from transactions
+    const walkInKey = '__walkin__';
+    final Map<String, _CustSummary> byCustomer = {};
+
+    for (final tx in widget.transactions) {
+      final isWalkIn = tx.customerId == null || tx.customerId!.isEmpty;
+      final id = isWalkIn ? walkInKey : tx.customerId!;
+
+      byCustomer.putIfAbsent(id, () {
+        if (isWalkIn) {
+          return _CustSummary(
+            id: walkInKey,
+            name: 'Walk-in',
+            phone: '',
+            rewardPoints: 0,
+            isNew: false,
+            isWalkIn: true,
+          );
+        }
+        final cust = customerMap[id];
+        return _CustSummary(
+          id: id,
+          name: cust?.name ?? tx.customerName ?? 'Unknown',
+          phone: cust?.phone ?? '',
+          rewardPoints: cust?.rewardPoints ?? 0,
+          isNew:
+              cust != null &&
+              !cust.createdAt.isBefore(
+                DateTime(
+                  widget.startDate.year,
+                  widget.startDate.month,
+                  widget.startDate.day,
+                ),
+              ) &&
+              !cust.createdAt.isAfter(
+                DateTime(
+                  widget.endDate.year,
+                  widget.endDate.month,
+                  widget.endDate.day,
+                  23,
+                  59,
+                  59,
+                ),
+              ),
+        );
+      });
+      byCustomer[id]!.addTransaction(tx);
+    }
+
+    final walkInSummary = byCustomer[walkInKey];
+    final walkInCount = walkInSummary?.visitCount ?? 0;
+
+    // Sort: named customers by spend descending, walk-in always last
+    final allCustomers = byCustomer.values.toList()
+      ..sort((a, b) {
+        if (a.isWalkIn) return 1;
+        if (b.isWalkIn) return -1;
+        return b.totalSpent.compareTo(a.totalSpent);
+      });
+
+    final newCount = allCustomers.where((c) => c.isNew).length;
+
+    // Apply search filter
+    final q = _search.trim().toLowerCase();
+    final filtered = q.isEmpty
+        ? allCustomers
+        : allCustomers
+              .where(
+                (c) => c.name.toLowerCase().contains(q) || c.phone.contains(q),
+              )
+              .toList();
+
+    final totalRevenue = allCustomers.fold<double>(
+      0,
+      (s, c) => s + c.totalSpent,
+    );
+
+    return Column(
+      children: [
+        // Search bar
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+          child: TextField(
+            controller: _searchCtrl,
+            decoration: InputDecoration(
+              hintText: 'Search by name or phone…',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: _search.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        setState(() => _search = '');
+                      },
+                    )
+                  : null,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 10,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              isDense: true,
+            ),
+            onChanged: (v) => setState(() => _search = v),
+          ),
+        ),
+
+        // Summary cards – hidden while searching but always in the tree so
+        // Expanded below stays at a fixed position in the Column children list
+        Offstage(
+          offstage: q.isNotEmpty,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _SummaryCard(
+                  label: 'Customers',
+                  value: '${allCustomers.where((c) => !c.isWalkIn).length}',
+                  icon: Icons.people_outline,
+                  color: Colors.blue,
+                ),
+                _SummaryCard(
+                  label: 'New in Period',
+                  value: '$newCount',
+                  icon: Icons.person_add_outlined,
+                  color: Colors.green,
+                ),
+                _SummaryCard(
+                  label: 'Walk-ins',
+                  value: '$walkInCount',
+                  icon: Icons.directions_walk,
+                  color: Colors.orange,
+                ),
+                _SummaryCard(
+                  label: 'Revenue',
+                  value: widget.currency.format(totalRevenue),
+                  icon: Icons.attach_money,
+                  color: Colors.teal,
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // List
+        Expanded(
+          child: filtered.isEmpty
+              ? Center(
+                  child: Text(
+                    q.isEmpty
+                        ? 'No customer transactions in this period.'
+                        : 'No customers match "$q".',
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                  itemCount: filtered.length,
+                  itemBuilder: (_, i) => _CustomerCard(
+                    summary: filtered[i],
+                    currency: widget.currency,
+                    dateLabel: widget.dateLabel,
+                    timeLabel: widget.timeLabel,
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+// Per-customer mutable aggregate
+class _CustSummary {
+  final String id;
+  final String name;
+  final String phone;
+  final double rewardPoints;
+  final bool isNew;
+  final bool isWalkIn;
+  int visitCount = 0;
+  double totalSpent = 0;
+  DateTime? lastVisit;
+  final List<Transaction> transactions = [];
+
+  _CustSummary({
+    required this.id,
+    required this.name,
+    required this.phone,
+    required this.rewardPoints,
+    required this.isNew,
+    this.isWalkIn = false,
+  });
+
+  void addTransaction(Transaction tx) {
+    visitCount++;
+    totalSpent += tx.totalAmount;
+    if (lastVisit == null || tx.createdAt.isAfter(lastVisit!)) {
+      lastVisit = tx.createdAt;
+    }
+    transactions.add(tx);
+  }
+}
+
+class _CustomerCard extends StatefulWidget {
+  final _CustSummary summary;
+  final NumberFormat currency;
+  final DateFormat dateLabel;
+  final DateFormat timeLabel;
+
+  const _CustomerCard({
+    required this.summary,
+    required this.currency,
+    required this.dateLabel,
+    required this.timeLabel,
+  });
+
+  @override
+  State<_CustomerCard> createState() => _CustomerCardState();
+}
+
+class _CustomerCardState extends State<_CustomerCard> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.summary;
+    final txs = s.transactions
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: Column(
+        children: [
+          // Header row
+          InkWell(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+              child: Row(
+                children: [
+                  // Avatar
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: s.isWalkIn
+                        ? Colors.grey.shade200
+                        : s.isNew
+                        ? Colors.green.shade100
+                        : Colors.blue.shade100,
+                    child: s.isWalkIn
+                        ? Icon(
+                            Icons.directions_walk,
+                            size: 20,
+                            color: Colors.grey.shade600,
+                          )
+                        : Text(
+                            s.name.isNotEmpty ? s.name[0].toUpperCase() : '?',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: s.isNew
+                                  ? Colors.green.shade800
+                                  : Colors.blue.shade800,
+                            ),
+                          ),
+                  ),
+                  const SizedBox(width: 12),
+
+                  // Name + phone + new badge
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              s.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                            if (s.isNew) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 1,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.shade50,
+                                  borderRadius: BorderRadius.circular(5),
+                                  border: Border.all(
+                                    color: Colors.green.shade300,
+                                  ),
+                                ),
+                                child: Text(
+                                  'NEW',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green.shade700,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        if (s.phone.isNotEmpty)
+                          Text(
+                            s.phone,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade500,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+
+                  // Stats
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        widget.currency.format(s.totalSpent),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: Colors.teal,
+                        ),
+                      ),
+                      Text(
+                        '${s.visitCount} visit${s.visitCount == 1 ? '' : 's'}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                      if (s.rewardPoints > 0)
+                        Text(
+                          '${s.rewardPoints.toStringAsFixed(0)} pts',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.amber.shade700,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    color: Colors.grey.shade400,
+                    size: 20,
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Expanded transaction list
+          if (_expanded) ...[
+            const Divider(height: 1),
+            ...txs.map(
+              (tx) => Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        if (tx.dailyNumber > 0)
+                          Container(
+                            margin: const EdgeInsets.only(right: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade50,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: Colors.blue.shade200),
+                            ),
+                            child: Text(
+                              '#${tx.dailyNumber}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue.shade700,
+                              ),
+                            ),
+                          ),
+                        Text(
+                          '${widget.dateLabel.format(tx.createdAt)}  ${widget.timeLabel.format(tx.createdAt)}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          widget.currency.format(tx.totalAmount),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: tx.status == TransactionStatus.paid
+                                ? Colors.green.shade50
+                                : Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: tx.status == TransactionStatus.paid
+                                  ? Colors.green.shade300
+                                  : Colors.orange.shade300,
+                            ),
+                          ),
+                          child: Text(
+                            tx.status == TransactionStatus.paid
+                                ? 'Paid'
+                                : 'Pending',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              color: tx.status == TransactionStatus.paid
+                                  ? Colors.green.shade700
+                                  : Colors.orange.shade700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    ...tx.items.map(
+                      (item) => Padding(
+                        padding: const EdgeInsets.only(left: 4, bottom: 1),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.spa_outlined,
+                              size: 10,
+                              color: Colors.grey.shade400,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                item.itemName,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '×${item.quantity}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey.shade400,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              widget.currency.format(item.subtotal),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (txs.last != tx) const Divider(height: 16),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+          ],
         ],
       ),
     );
