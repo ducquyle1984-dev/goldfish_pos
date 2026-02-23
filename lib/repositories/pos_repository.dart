@@ -313,9 +313,26 @@ class PosRepository {
 
   Future<String> createTransaction(Transaction transaction) async {
     try {
-      final docRef = await _firestore
+      // Count today's transactions to assign a sequential daily number.
+      final now = DateTime.now();
+      final startOfDay = Timestamp.fromDate(
+        DateTime(now.year, now.month, now.day, 0, 0, 0),
+      );
+      final endOfDay = Timestamp.fromDate(
+        DateTime(now.year, now.month, now.day, 23, 59, 59),
+      );
+      final todaySnap = await _firestore
           .collection('transactions')
-          .add(transaction.toFirestore());
+          .where('createdAt', isGreaterThanOrEqualTo: startOfDay)
+          .where('createdAt', isLessThanOrEqualTo: endOfDay)
+          .count()
+          .get();
+      final dailyNumber = (todaySnap.count ?? 0) + 1;
+
+      final data = transaction.toFirestore();
+      data['dailyNumber'] = dailyNumber;
+
+      final docRef = await _firestore.collection('transactions').add(data);
       return docRef.id;
     } catch (e) {
       throw Exception('Failed to create transaction: $e');
@@ -421,6 +438,32 @@ class PosRepository {
               .map((doc) => Transaction.fromFirestore(doc))
               .toList(),
         );
+  }
+
+  /// Returns paid/completed transactions whose createdAt falls within
+  /// [start, end] (inclusive). Voided transactions are excluded.
+  Future<List<Transaction>> getTransactionsByDateRange(
+    DateTime start,
+    DateTime end,
+  ) async {
+    final from = Timestamp.fromDate(
+      DateTime(start.year, start.month, start.day, 0, 0, 0),
+    );
+    final to = Timestamp.fromDate(
+      DateTime(end.year, end.month, end.day, 23, 59, 59),
+    );
+    final snapshot = await _firestore
+        .collection('transactions')
+        .where('createdAt', isGreaterThanOrEqualTo: from)
+        .where('createdAt', isLessThanOrEqualTo: to)
+        .get();
+    final txns = snapshot.docs
+        .map((doc) => Transaction.fromFirestore(doc))
+        .where((tx) => tx.status != TransactionStatus.voided)
+        .toList();
+    // Sort by createdAt ascending (avoids needing a Firestore composite index)
+    txns.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return txns;
   }
 
   // ==================== Helper Methods ====================

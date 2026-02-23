@@ -96,15 +96,22 @@ class Payment {
   });
 
   factory Payment.fromJson(Map<String, dynamic> json) {
+    DateTime parseDate() {
+      final raw = json['paymentDate'];
+      if (raw is Timestamp) return raw.toDate();
+      if (raw is String) {
+        try {
+          return DateTime.parse(raw);
+        } catch (_) {}
+      }
+      return DateTime.now();
+    }
+
     return Payment(
       paymentMethodId: json['paymentMethodId'] ?? '',
       paymentMethodName: json['paymentMethodName'] ?? '',
       amountPaid: (json['amountPaid'] ?? 0).toDouble(),
-      paymentDate: json['paymentDate'] is Timestamp
-          ? (json['paymentDate'] as Timestamp).toDate()
-          : DateTime.parse(
-              json['paymentDate'] as String? ?? DateTime.now().toString(),
-            ),
+      paymentDate: parseDate(),
     );
   }
 
@@ -118,7 +125,8 @@ class Payment {
 
 class Transaction {
   final String id;
-  final List<TransactionItem> items; // One or more items
+  final int dailyNumber; // Sequential #1, #2... per day; 0 = unassigned
+  final List<TransactionItem> items;
   final String? customerId; // Optional customer for reward points
   final String? customerName;
   final List<Discount> discounts; // Can have multiple discounts
@@ -134,6 +142,7 @@ class Transaction {
 
   Transaction({
     required this.id,
+    this.dailyNumber = 0,
     required this.items,
     this.customerId,
     this.customerName,
@@ -150,32 +159,28 @@ class Transaction {
   });
 
   factory Transaction.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    final data = (doc.data() ?? {}) as Map<String, dynamic>;
     return Transaction(
       id: doc.id,
+      dailyNumber: (data['dailyNumber'] ?? 0) as int,
       items:
           (data['items'] as List<dynamic>?)
-              ?.map(
-                (item) =>
-                    TransactionItem.fromJson(item as Map<String, dynamic>),
-              )
+              ?.whereType<Map<String, dynamic>>()
+              .map(TransactionItem.fromJson)
               .toList() ??
           [],
       customerId: data['customerId'],
       customerName: data['customerName'],
       discounts:
           (data['discounts'] as List<dynamic>?)
-              ?.map(
-                (discount) =>
-                    Discount.fromJson(discount as Map<String, dynamic>),
-              )
+              ?.whereType<Map<String, dynamic>>()
+              .map(Discount.fromJson)
               .toList() ??
           [],
       payments:
           (data['payments'] as List<dynamic>?)
-              ?.map(
-                (payment) => Payment.fromJson(payment as Map<String, dynamic>),
-              )
+              ?.whereType<Map<String, dynamic>>()
+              .map(Payment.fromJson)
               .toList() ??
           [],
       status: _parseTransactionStatus(data['status']),
@@ -192,6 +197,7 @@ class Transaction {
   factory Transaction.fromJson(Map<String, dynamic> json) {
     return Transaction(
       id: json['id'] ?? '',
+      dailyNumber: (json['dailyNumber'] ?? 0) as int,
       items:
           (json['items'] as List<dynamic>?)
               ?.map(
@@ -251,6 +257,7 @@ class Transaction {
 
   Map<String, dynamic> toJson() => {
     'id': id,
+    'dailyNumber': dailyNumber,
     'items': items.map((item) => item.toJson()).toList(),
     'customerId': customerId,
     'customerName': customerName,
@@ -267,6 +274,7 @@ class Transaction {
   };
 
   Map<String, dynamic> toFirestore() => {
+    'dailyNumber': dailyNumber,
     'items': items.map((item) => item.toJson()).toList(),
     'customerId': customerId,
     'customerName': customerName,

@@ -6,6 +6,7 @@ import 'package:goldfish_pos/models/employee_model.dart';
 import 'package:goldfish_pos/models/transaction_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/screens/admin/admin_dashboard_screen.dart';
+import 'package:goldfish_pos/screens/reports_screen.dart';
 import 'package:goldfish_pos/screens/transaction_create_screen.dart';
 import 'package:goldfish_pos/widgets/customer_check_in_dialog.dart';
 
@@ -38,9 +39,14 @@ class _HomeScreenState extends State<HomeScreen> {
       label: Text('Booking'),
     ),
     const NavigationRailDestination(
-      icon: Icon(Icons.admin_panel_settings_outlined),
-      selectedIcon: Icon(Icons.admin_panel_settings),
-      label: Text('Admin'),
+      icon: Icon(Icons.bar_chart_outlined),
+      selectedIcon: Icon(Icons.bar_chart_rounded),
+      label: Text('Reports'),
+    ),
+    const NavigationRailDestination(
+      icon: Icon(Icons.settings_outlined),
+      selectedIcon: Icon(Icons.settings),
+      label: Text('Setup'),
     ),
   ];
 
@@ -140,6 +146,8 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return _buildPlaceholder('Booking');
       case 2:
+        return const ReportsScreen();
+      case 3:
         return const AdminDashboardScreen();
       default:
         return _buildDashboard();
@@ -392,6 +400,27 @@ class _HomeScreenState extends State<HomeScreen> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    if (tx.dailyNumber > 0) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '#${tx.dailyNumber}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(width: 4),
                     _ElapsedClock(createdAt: tx.createdAt),
                     GestureDetector(
