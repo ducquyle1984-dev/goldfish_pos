@@ -233,7 +233,7 @@ class _PaymentMethodManagementScreenState
                       },
                     ),
                     // ── Helcim-specific configuration ──────────────────────
-                    if (_selectedProcessor == PaymentProcessorType.helcim) ..[
+                    if (_selectedProcessor == PaymentProcessorType.helcim) ...[
                       const SizedBox(height: 12),
                       const Divider(),
                       Row(
@@ -415,7 +415,7 @@ class _PaymentMethodManagementScreenState
                                   'Commission: ${method.transactionCommission}%',
                                 ),
                                 if (method.processorType ==
-                                    PaymentProcessorType.helcim) ..[
+                                    PaymentProcessorType.helcim) ...[
                                   const SizedBox(height: 8),
                                   if (method.additionalConfig?['accountGuid'] !=
                                       null)

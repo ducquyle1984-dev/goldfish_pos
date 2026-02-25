@@ -708,8 +708,7 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
                   StreamBuilder(
                     stream: _repo.getPaymentMethods(),
                     builder: (context, snapshot) {
-                      final methods =
-                          (snapshot.data as List<PaymentMethod>?) ?? [];
+                      final methods = snapshot.data ?? [];
                       // Keep cached list for lookup
                       if (methods.isNotEmpty) _paymentMethods = methods;
                       return DropdownButtonFormField<String>(
@@ -933,7 +932,6 @@ class _HelcimPaymentDialog extends StatefulWidget {
 class _HelcimPaymentDialogState extends State<_HelcimPaymentDialog> {
   final _txIdController = TextEditingController();
   bool _isProcessing = false;
-  String? _statusMessage;
   String? _errorMessage;
   String? _checkoutToken;
 
@@ -948,12 +946,11 @@ class _HelcimPaymentDialogState extends State<_HelcimPaymentDialog> {
   Future<void> _initHelcimPaySession() async {
     setState(() {
       _isProcessing = true;
-      _statusMessage = null;
       _errorMessage = null;
     });
 
     final amountCents = (widget.amount * 100).round();
-    final result = await widget.helcim.initializeHelcimPay(
+    final result = await widget.helcim.initializeHelcimPaySession(
       amountInCents: amountCents,
     );
 
@@ -962,8 +959,6 @@ class _HelcimPaymentDialogState extends State<_HelcimPaymentDialog> {
       setState(() {
         _isProcessing = false;
         _checkoutToken = result.checkoutToken;
-        _statusMessage =
-            'HelcimPay session initialized.\nCheckout Token: ${result.checkoutToken}';
       });
     } else {
       setState(() {
