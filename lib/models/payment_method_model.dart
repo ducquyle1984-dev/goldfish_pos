@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum PaymentProcessorType { stripe, square, paypal, custom }
+enum PaymentProcessorType { stripe, square, paypal, helcim, custom }
 
 class PaymentMethod {
   final String id;
@@ -79,6 +79,8 @@ class PaymentMethod {
         return PaymentProcessorType.square;
       case 'paypal':
         return PaymentProcessorType.paypal;
+      case 'helcim':
+        return PaymentProcessorType.helcim;
       default:
         return PaymentProcessorType.custom;
     }
@@ -92,6 +94,8 @@ class PaymentMethod {
         return 'square';
       case PaymentProcessorType.paypal:
         return 'paypal';
+      case PaymentProcessorType.helcim:
+        return 'helcim';
       case PaymentProcessorType.custom:
         return 'custom';
     }

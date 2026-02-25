@@ -18,6 +18,9 @@ class _PaymentMethodManagementScreenState
   final _secretKeyController = TextEditingController();
   final _commissionController = TextEditingController();
   final _webhookUrlController = TextEditingController();
+  // Helcim-specific fields
+  final _helcimAccountGuidController = TextEditingController();
+  final _helcimTerminalIdController = TextEditingController();
   PaymentProcessorType _selectedProcessor = PaymentProcessorType.stripe;
   PaymentMethod? _editingMethod;
 
@@ -28,6 +31,8 @@ class _PaymentMethodManagementScreenState
     _secretKeyController.dispose();
     _commissionController.dispose();
     _webhookUrlController.dispose();
+    _helcimAccountGuidController.dispose();
+    _helcimTerminalIdController.dispose();
     super.dispose();
   }
 
@@ -37,6 +42,8 @@ class _PaymentMethodManagementScreenState
     _secretKeyController.clear();
     _commissionController.clear();
     _webhookUrlController.clear();
+    _helcimAccountGuidController.clear();
+    _helcimTerminalIdController.clear();
     _selectedProcessor = PaymentProcessorType.stripe;
     _editingMethod = null;
   }
@@ -52,6 +59,18 @@ class _PaymentMethodManagementScreenState
 
     try {
       final now = DateTime.now();
+      // Build additionalConfig for Helcim
+      Map<String, dynamic>? additionalConfig = _editingMethod?.additionalConfig;
+      if (_selectedProcessor == PaymentProcessorType.helcim) {
+        additionalConfig = {
+          ...?additionalConfig,
+          if (_helcimAccountGuidController.text.isNotEmpty)
+            'accountGuid': _helcimAccountGuidController.text.trim(),
+          if (_helcimTerminalIdController.text.isNotEmpty)
+            'terminalId': _helcimTerminalIdController.text.trim(),
+        };
+      }
+
       final paymentMethod = PaymentMethod(
         id: _editingMethod?.id ?? '',
         merchantName: _merchantNameController.text,
@@ -65,6 +84,7 @@ class _PaymentMethodManagementScreenState
         webhookUrl: _webhookUrlController.text.isEmpty
             ? null
             : _webhookUrlController.text,
+        additionalConfig: additionalConfig,
         isActive: true,
         createdAt: _editingMethod?.createdAt ?? now,
         updatedAt: now,
@@ -101,6 +121,11 @@ class _PaymentMethodManagementScreenState
         method.transactionCommission?.toString() ?? '0';
     _webhookUrlController.text = method.webhookUrl ?? '';
     _selectedProcessor = method.processorType;
+    // Restore Helcim-specific fields
+    _helcimAccountGuidController.text =
+        method.additionalConfig?['accountGuid']?.toString() ?? '';
+    _helcimTerminalIdController.text =
+        method.additionalConfig?['terminalId']?.toString() ?? '';
   }
 
   Future<void> _deletePaymentMethod(String methodId) async {
@@ -181,6 +206,10 @@ class _PaymentMethodManagementScreenState
                       ),
                       items: [
                         DropdownMenuItem(
+                          value: PaymentProcessorType.helcim,
+                          child: const Text('Helcim'),
+                        ),
+                        DropdownMenuItem(
                           value: PaymentProcessorType.stripe,
                           child: const Text('Stripe'),
                         ),
@@ -203,6 +232,55 @@ class _PaymentMethodManagementScreenState
                         }
                       },
                     ),
+                    // ── Helcim-specific configuration ──────────────────────
+                    if (_selectedProcessor == PaymentProcessorType.helcim) ..[
+                      const SizedBox(height: 12),
+                      const Divider(),
+                      Row(
+                        children: [
+                          const Icon(Icons.credit_card, size: 18),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Helcim ISV Configuration',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Enter your Helcim API token (from the Helcim dashboard) '
+                        'in the API Key field above. The Account GUID and '
+                        'Terminal ID are obtained from your Helcim merchant account.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _helcimAccountGuidController,
+                        decoration: const InputDecoration(
+                          labelText: 'Helcim Account GUID *',
+                          hintText: 'e.g. 12345678-abcd-...',
+                          border: OutlineInputBorder(),
+                          helperText:
+                              'The merchant account GUID from Helcim (required for ISV routing)',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _helcimTerminalIdController,
+                        decoration: const InputDecoration(
+                          labelText: 'Terminal ID (optional)',
+                          hintText: 'e.g. 98765',
+                          border: OutlineInputBorder(),
+                          helperText:
+                              'Helcim card-reader terminal ID for card-present payments',
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Divider(),
+                    ],
                     const SizedBox(height: 12),
                     TextField(
                       controller: _apiKeyController,
@@ -336,6 +414,28 @@ class _PaymentMethodManagementScreenState
                                 Text(
                                   'Commission: ${method.transactionCommission}%',
                                 ),
+                                if (method.processorType ==
+                                    PaymentProcessorType.helcim) ..[
+                                  const SizedBox(height: 8),
+                                  if (method.additionalConfig?['accountGuid'] !=
+                                      null)
+                                    Text(
+                                      'Account GUID: ${method.additionalConfig!['accountGuid']}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  if (method.additionalConfig?['terminalId'] !=
+                                      null)
+                                    Text(
+                                      'Terminal ID: ${method.additionalConfig!['terminalId']}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                ],
                                 if (method.webhookUrl != null) ...[
                                   const SizedBox(height: 8),
                                   Text(

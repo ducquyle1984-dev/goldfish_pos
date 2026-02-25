@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:goldfish_pos/models/customer_model.dart';
+import 'package:goldfish_pos/models/payment_method_model.dart';
 import 'package:goldfish_pos/models/reward_settings_model.dart';
 import 'package:goldfish_pos/models/transaction_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
+import 'package:goldfish_pos/services/helcim_service.dart';
 
 /// Screen for viewing and checking out a pending transaction.
 class TransactionCheckoutScreen extends StatefulWidget {
@@ -23,6 +25,9 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
   final _paymentAmountController = TextEditingController();
   String? _selectedPaymentMethodId;
   String? _selectedPaymentMethodName;
+  PaymentMethod?
+  _selectedPaymentMethod; // full object for processor-specific logic
+  List<PaymentMethod> _paymentMethods = [];
 
   // Reward points
   final _rewardPointsCtrl = TextEditingController();
@@ -80,6 +85,12 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
       return;
     }
 
+    // Route to Helcim-specific flow
+    if (_selectedPaymentMethod?.processorType == PaymentProcessorType.helcim) {
+      await _processHelcimPayment(amount);
+      return;
+    }
+
     setState(() => _isSaving = true);
     try {
       final payment = Payment(
@@ -118,6 +129,88 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
       _showError('Failed to add payment: $e');
     } finally {
       setState(() => _isSaving = false);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // HELCIM PAYMENT FLOW
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Handles payment via Helcim — shows a dialog so the cashier can either:
+  ///   • Initiate a HelcimPay hosted checkout session (online / card-not-present)
+  ///   • Confirm a physical terminal payment and enter the Helcim transaction ID
+  Future<void> _processHelcimPayment(double amount) async {
+    final method = _selectedPaymentMethod!;
+    final config = method.additionalConfig ?? {};
+    final accountGuid = config['accountGuid']?.toString() ?? '';
+    final terminalId = config['terminalId']?.toString();
+    final apiToken = method.processorApiKey;
+
+    if (accountGuid.isEmpty || apiToken.isEmpty) {
+      _showError(
+        'Helcim is not fully configured. '
+        'Please add the Account GUID and API Token in Payment Processor Settings.',
+      );
+      return;
+    }
+
+    final helcim = HelcimService(
+      apiToken: apiToken,
+      accountGuid: accountGuid,
+      terminalId: terminalId,
+    );
+
+    // Show dialog offering terminal confirm or HelcimPay hosted session
+    final result = await showDialog<_HelcimPaymentDialogResult?>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _HelcimPaymentDialog(
+        amount: amount,
+        helcim: helcim,
+        merchantName: method.merchantName,
+      ),
+    );
+
+    if (result == null || !result.confirmed) return; // user cancelled
+
+    setState(() => _isSaving = true);
+    try {
+      final payment = Payment(
+        paymentMethodId: _selectedPaymentMethodId!,
+        paymentMethodName: _selectedPaymentMethodName!,
+        amountPaid: amount,
+        paymentDate: DateTime.now(),
+        // Store the Helcim transaction reference in the notes via a custom field
+        // when PaymentModel is extended. For now we embed it in the name.
+      );
+
+      await _repo.addPaymentToTransaction(_transaction.id, payment);
+
+      final updated = await _repo.getTransaction(_transaction.id);
+      if (updated != null) setState(() => _transaction = updated);
+
+      final wasFullyPaid = _transaction.isFullyPaid;
+      if (wasFullyPaid) await _markAsPaid();
+
+      _paymentAmountController.clear();
+      setState(() => _selectedPaymentMethodId = null);
+
+      if (!wasFullyPaid && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.helcimTransactionId != null
+                  ? 'Helcim payment recorded (Ref: ${result.helcimTransactionId}).'
+                  : 'Helcim payment recorded.',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      _showError('Failed to record Helcim payment: \$e');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -615,25 +708,48 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
                   StreamBuilder(
                     stream: _repo.getPaymentMethods(),
                     builder: (context, snapshot) {
-                      final methods = snapshot.data ?? [];
+                      final methods =
+                          (snapshot.data as List<PaymentMethod>?) ?? [];
+                      // Keep cached list for lookup
+                      if (methods.isNotEmpty) _paymentMethods = methods;
                       return DropdownButtonFormField<String>(
                         value: _selectedPaymentMethodId,
                         decoration: const InputDecoration(
                           labelText: 'Payment Method',
                           border: OutlineInputBorder(),
                         ),
-                        items: methods
+                        items: _paymentMethods
                             .map(
                               (m) => DropdownMenuItem(
                                 value: m.id,
-                                child: Text(m.merchantName),
-                                onTap: () =>
-                                    _selectedPaymentMethodName = m.merchantName,
+                                child: Row(
+                                  children: [
+                                    if (m.processorType ==
+                                        PaymentProcessorType.helcim)
+                                      const Padding(
+                                        padding: EdgeInsets.only(right: 6),
+                                        child: Icon(
+                                          Icons.credit_card,
+                                          size: 16,
+                                        ),
+                                      ),
+                                    Text(m.merchantName),
+                                  ],
+                                ),
                               ),
                             )
                             .toList(),
-                        onChanged: (val) =>
-                            setState(() => _selectedPaymentMethodId = val),
+                        onChanged: (val) {
+                          if (val == null) return;
+                          final found = _paymentMethods
+                              .where((m) => m.id == val)
+                              .firstOrNull;
+                          setState(() {
+                            _selectedPaymentMethodId = val;
+                            _selectedPaymentMethodName = found?.merchantName;
+                            _selectedPaymentMethod = found;
+                          });
+                        },
                       );
                     },
                   ),
@@ -776,6 +892,252 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// HELCIM PAYMENT DIALOG
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _HelcimPaymentDialogResult {
+  final bool confirmed;
+  final String? helcimTransactionId;
+
+  const _HelcimPaymentDialogResult({
+    required this.confirmed,
+    this.helcimTransactionId,
+  });
+}
+
+/// Dialog shown when the cashier selects Helcim as the payment method.
+/// Offers two options:
+///   1. Initiate a HelcimPay hosted checkout session (returns a checkout token
+///      which can be opened in a browser / WebView for card-not-present).
+///   2. Confirm a card-present terminal payment and record the Helcim
+///      transaction reference ID issued by the physical terminal.
+class _HelcimPaymentDialog extends StatefulWidget {
+  final double amount;
+  final HelcimService helcim;
+  final String merchantName;
+
+  const _HelcimPaymentDialog({
+    required this.amount,
+    required this.helcim,
+    required this.merchantName,
+  });
+
+  @override
+  State<_HelcimPaymentDialog> createState() => _HelcimPaymentDialogState();
+}
+
+class _HelcimPaymentDialogState extends State<_HelcimPaymentDialog> {
+  final _txIdController = TextEditingController();
+  bool _isProcessing = false;
+  String? _statusMessage;
+  String? _errorMessage;
+  String? _checkoutToken;
+
+  @override
+  void dispose() {
+    _txIdController.dispose();
+    super.dispose();
+  }
+
+  /// Initializes a HelcimPay hosted session and shows the checkout token.
+  /// The cashier can open this token URL in a browser or WebView.
+  Future<void> _initHelcimPaySession() async {
+    setState(() {
+      _isProcessing = true;
+      _statusMessage = null;
+      _errorMessage = null;
+    });
+
+    final amountCents = (widget.amount * 100).round();
+    final result = await widget.helcim.initializeHelcimPay(
+      amountInCents: amountCents,
+    );
+
+    if (!mounted) return;
+    if (result.success) {
+      setState(() {
+        _isProcessing = false;
+        _checkoutToken = result.checkoutToken;
+        _statusMessage =
+            'HelcimPay session initialized.\nCheckout Token: ${result.checkoutToken}';
+      });
+    } else {
+      setState(() {
+        _isProcessing = false;
+        _errorMessage =
+            result.errorMessage ?? 'Failed to initialize HelcimPay.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.credit_card, size: 20),
+          const SizedBox(width: 8),
+          Text('Helcim — \$${widget.amount.toStringAsFixed(2)}'),
+        ],
+      ),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Merchant: ${widget.merchantName}',
+                style: const TextStyle(fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 16),
+
+              // ── Option A: Physical Terminal ──────────────────────────────
+              const Text(
+                'Option A — Card Terminal',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Process the payment on your Helcim card reader / terminal, '
+                'then enter the Helcim Transaction ID shown on the receipt.',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _txIdController,
+                decoration: const InputDecoration(
+                  labelText: 'Helcim Transaction ID (from terminal)',
+                  hintText: 'e.g. 12345678',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // ── Option B: HelcimPay Hosted Checkout ──────────────────────
+              const Divider(),
+              const SizedBox(height: 8),
+              const Text(
+                'Option B — HelcimPay Hosted Checkout',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Generate a secure HelcimPay checkout session. Open the returned '
+                'token URL in a browser or WebView for the customer to enter card details.',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.open_in_browser, size: 18),
+                  label: const Text('Initialize HelcimPay Session'),
+                  onPressed: _isProcessing ? null : _initHelcimPaySession,
+                ),
+              ),
+
+              // Status / error messages
+              if (_isProcessing) ...[
+                const SizedBox(height: 12),
+                const Row(
+                  children: [
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 10),
+                    Text('Contacting Helcim…'),
+                  ],
+                ),
+              ],
+              if (_checkoutToken != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Checkout token ready:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      SelectableText(
+                        _checkoutToken!,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'After the customer completes payment, enter the Helcim '
+                        'Transaction ID in the field above and tap Confirm.',
+                        style: TextStyle(fontSize: 11, color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Text(
+                    _errorMessage!,
+                    style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(
+            context,
+            const _HelcimPaymentDialogResult(confirmed: false),
+          ),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          icon: const Icon(Icons.check_circle_outline, size: 18),
+          label: const Text('Confirm Payment'),
+          onPressed: _isProcessing
+              ? null
+              : () => Navigator.pop(
+                  context,
+                  _HelcimPaymentDialogResult(
+                    confirmed: true,
+                    helcimTransactionId: _txIdController.text.trim().isEmpty
+                        ? null
+                        : _txIdController.text.trim(),
+                  ),
+                ),
+        ),
+      ],
     );
   }
 }
