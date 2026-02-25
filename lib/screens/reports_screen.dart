@@ -37,6 +37,9 @@ class _ReportsScreenState extends State<ReportsScreen>
   Set<TransactionStatus> _selStatuses = {};
   Set<String> _selPaymentMethods = {};
 
+  // Active quick-date label (Today / Yesterday / etc.)
+  String? _activeQuickLabel;
+
   // Derived from loaded transactions
   List<String> get _allEmployeeNames {
     final names = <String>{};
@@ -390,15 +393,17 @@ class _ReportsScreenState extends State<ReportsScreen>
       setState(() {
         _startDate = picked.start;
         _endDate = picked.end;
+        _activeQuickLabel = null; // custom range — deselect all chips
       });
       _load();
     }
   }
 
-  void _setQuick(DateTime start, DateTime end) {
+  void _setQuick(DateTime start, DateTime end, String label) {
     setState(() {
       _startDate = start;
       _endDate = end;
+      _activeQuickLabel = label;
     });
     _load();
   }
@@ -538,44 +543,49 @@ class _ReportsScreenState extends State<ReportsScreen>
                   children: [
                     _QuickChip(
                       label: 'Today',
+                      isSelected: _activeQuickLabel == 'Today',
                       onTap: () {
                         final d = DateTime.now();
-                        _setQuick(d, d);
+                        _setQuick(d, d, 'Today');
                       },
                     ),
                     _QuickChip(
                       label: 'Yesterday',
+                      isSelected: _activeQuickLabel == 'Yesterday',
                       onTap: () {
                         final d = DateTime.now().subtract(
                           const Duration(days: 1),
                         );
-                        _setQuick(d, d);
+                        _setQuick(d, d, 'Yesterday');
                       },
                     ),
                     _QuickChip(
                       label: 'This Week',
+                      isSelected: _activeQuickLabel == 'This Week',
                       onTap: () {
                         final now = DateTime.now();
                         final start = now.subtract(
                           Duration(days: now.weekday - 1),
                         );
-                        _setQuick(start, now);
+                        _setQuick(start, now, 'This Week');
                       },
                     ),
                     _QuickChip(
                       label: 'This Month',
+                      isSelected: _activeQuickLabel == 'This Month',
                       onTap: () {
                         final now = DateTime.now();
-                        _setQuick(DateTime(now.year, now.month, 1), now);
+                        _setQuick(DateTime(now.year, now.month, 1), now, 'This Month');
                       },
                     ),
                     _QuickChip(
                       label: 'Last Month',
+                      isSelected: _activeQuickLabel == 'Last Month',
                       onTap: () {
                         final now = DateTime.now();
                         final first = DateTime(now.year, now.month - 1, 1);
                         final last = DateTime(now.year, now.month, 0);
-                        _setQuick(first, last);
+                        _setQuick(first, last, 'Last Month');
                       },
                     ),
                   ],
@@ -643,7 +653,12 @@ class _ReportsScreenState extends State<ReportsScreen>
 class _QuickChip extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
-  const _QuickChip({required this.label, required this.onTap});
+  final bool isSelected;
+  const _QuickChip({
+    required this.label,
+    required this.onTap,
+    this.isSelected = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -651,19 +666,33 @@ class _QuickChip extends StatelessWidget {
       padding: const EdgeInsets.only(right: 6, bottom: 4),
       child: GestureDetector(
         onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.15),
+            color: isSelected ? Colors.white : Colors.white.withOpacity(0.15),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white30),
+            border: Border.all(
+              color: isSelected ? Colors.white : Colors.white38,
+              width: isSelected ? 2 : 1,
+            ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.18),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : [],
           ),
           child: Text(
             label,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: isSelected ? Colors.blue.shade700 : Colors.white,
               fontSize: 12,
-              fontWeight: FontWeight.w500,
+              fontWeight:
+                  isSelected ? FontWeight.bold : FontWeight.w500,
             ),
           ),
         ),
