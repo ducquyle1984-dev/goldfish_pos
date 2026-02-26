@@ -575,7 +575,11 @@ class _ReportsScreenState extends State<ReportsScreen>
                       isSelected: _activeQuickLabel == 'This Month',
                       onTap: () {
                         final now = DateTime.now();
-                        _setQuick(DateTime(now.year, now.month, 1), now, 'This Month');
+                        _setQuick(
+                          DateTime(now.year, now.month, 1),
+                          now,
+                          'This Month',
+                        );
                       },
                     ),
                     _QuickChip(
@@ -691,8 +695,7 @@ class _QuickChip extends StatelessWidget {
             style: TextStyle(
               color: isSelected ? Colors.blue.shade700 : Colors.white,
               fontSize: 12,
-              fontWeight:
-                  isSelected ? FontWeight.bold : FontWeight.w500,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
             ),
           ),
         ),
