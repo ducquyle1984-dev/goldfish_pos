@@ -40,6 +40,9 @@ class _ReportsScreenState extends State<ReportsScreen>
   // Active quick-date label (Today / Yesterday / etc.)
   String? _activeQuickLabel;
 
+  // Whether to include voided transactions in the report
+  bool _includeVoided = false;
+
   // Derived from loaded transactions
   List<String> get _allEmployeeNames {
     final names = <String>{};
@@ -133,7 +136,11 @@ class _ReportsScreenState extends State<ReportsScreen>
       _error = null;
     });
     try {
-      final txns = await _repo.getTransactionsByDateRange(_startDate, _endDate);
+      final txns = await _repo.getTransactionsByDateRange(
+        _startDate,
+        _endDate,
+        includeVoided: _includeVoided,
+      );
       final customers = await _repo.getAllCustomers();
       if (mounted) {
         setState(() {
@@ -592,6 +599,59 @@ class _ReportsScreenState extends State<ReportsScreen>
                         _setQuick(first, last, 'Last Month');
                       },
                     ),
+                    const SizedBox(width: 8),
+                    const VerticalDivider(
+                      width: 1,
+                      thickness: 1,
+                      color: Colors.white24,
+                    ),
+                    const SizedBox(width: 8),
+                    // Voided toggle
+                    GestureDetector(
+                      onTap: () {
+                        setState(() => _includeVoided = !_includeVoided);
+                        _load();
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _includeVoided
+                              ? Colors.red.shade400
+                              : Colors.white.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: _includeVoided
+                                ? Colors.red.shade200
+                                : Colors.white.withOpacity(0.35),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _includeVoided
+                                  ? Icons.visibility
+                                  : Icons.visibility_off_outlined,
+                              size: 13,
+                              color: Colors.white,
+                            ),
+                            const SizedBox(width: 5),
+                            const Text(
+                              'Voided',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -820,9 +880,18 @@ class _TxRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isVoided = tx.status == TransactionStatus.voided;
     final isPaid = tx.status == TransactionStatus.paid;
-    final statusColor = isPaid ? Colors.green.shade600 : Colors.orange.shade600;
-    final statusLabel = isPaid ? 'Paid' : 'Pending';
+    final statusColor = isVoided
+        ? Colors.red.shade400
+        : isPaid
+        ? Colors.green.shade600
+        : Colors.orange.shade600;
+    final statusLabel = isVoided
+        ? 'Voided'
+        : isPaid
+        ? 'Paid'
+        : 'Pending';
 
     // Unique technicians in order of appearance
     final techs = tx.items.map((i) => i.employeeName).toSet().join(' · ');
@@ -833,207 +902,216 @@ class _TxRow extends StatelessWidget {
         .toSet()
         .join(', ');
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      child: IntrinsicHeight(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(0, 0, 14, 0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Status bar
-              Container(
-                width: 6,
-                decoration: BoxDecoration(
-                  color: statusColor,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(10),
-                    bottomLeft: Radius.circular(10),
+    return Opacity(
+      opacity: isVoided ? 0.6 : 1.0,
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 10),
+        elevation: 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        child: IntrinsicHeight(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(0, 0, 14, 0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Status bar
+                Container(
+                  width: 6,
+                  decoration: BoxDecoration(
+                    color: statusColor,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(10),
+                      bottomLeft: Radius.circular(10),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              // Main info
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Row 1: customer + time
-                      Row(
-                        children: [
-                          if (tx.dailyNumber > 0) ...[
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 1,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.shade50,
-                                borderRadius: BorderRadius.circular(5),
-                                border: Border.all(color: Colors.blue.shade200),
-                              ),
-                              child: Text(
-                                '#${tx.dailyNumber}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.blue.shade700,
+                const SizedBox(width: 12),
+                // Main info
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Row 1: customer + time
+                        Row(
+                          children: [
+                            if (tx.dailyNumber > 0) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 1,
                                 ),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                          ],
-                          const Icon(
-                            Icons.person_outline,
-                            size: 13,
-                            color: Colors.grey,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            tx.customerName ?? 'Walk-in',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            '${dateLabel.format(tx.createdAt)}  ${timeLabel.format(tx.createdAt)}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey.shade500,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 5),
-                      // Row 2: services (one per line if multiple)
-                      ...tx.items.map(
-                        (item) => Padding(
-                          padding: const EdgeInsets.only(bottom: 2),
-                          child: Row(
-                            children: [
-                              const SizedBox(width: 2),
-                              Icon(
-                                Icons.spa_outlined,
-                                size: 11,
-                                color: Colors.grey.shade400,
-                              ),
-                              const SizedBox(width: 5),
-                              Expanded(
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.shade50,
+                                  borderRadius: BorderRadius.circular(5),
+                                  border: Border.all(
+                                    color: Colors.blue.shade200,
+                                  ),
+                                ),
                                 child: Text(
-                                  item.itemName,
+                                  '#${tx.dailyNumber}',
                                   style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade700,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue.shade700,
                                   ),
                                 ),
                               ),
-                              Text(
-                                '×${item.quantity}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey.shade500,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                currency.format(item.subtotal),
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
+                              const SizedBox(width: 6),
                             ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      // Row 3: technician(s) + payment method
-                      Row(
-                        children: [
-                          if (techs.isNotEmpty) ...[
-                            Icon(
-                              Icons.badge_outlined,
-                              size: 12,
-                              color: Colors.blue.shade300,
+                            const Icon(
+                              Icons.person_outline,
+                              size: 13,
+                              color: Colors.grey,
                             ),
                             const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                techs,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.blue.shade400,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                            Text(
+                              tx.customerName ?? 'Walk-in',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
                               ),
                             ),
-                          ] else
-                            const Expanded(child: SizedBox()),
-                          if (paymentMethods.isNotEmpty) ...[
-                            const SizedBox(width: 8),
-                            Icon(
-                              Icons.payment_outlined,
-                              size: 12,
-                              color: Colors.grey.shade400,
-                            ),
-                            const SizedBox(width: 3),
+                            const Spacer(),
                             Text(
-                              paymentMethods,
+                              '${dateLabel.format(tx.createdAt)}  ${timeLabel.format(tx.createdAt)}',
                               style: TextStyle(
                                 fontSize: 11,
                                 color: Colors.grey.shade500,
                               ),
                             ),
                           ],
-                        ],
-                      ),
-                    ],
+                        ),
+                        const SizedBox(height: 5),
+                        // Row 2: services (one per line if multiple)
+                        ...tx.items.map(
+                          (item) => Padding(
+                            padding: const EdgeInsets.only(bottom: 2),
+                            child: Row(
+                              children: [
+                                const SizedBox(width: 2),
+                                Icon(
+                                  Icons.spa_outlined,
+                                  size: 11,
+                                  color: Colors.grey.shade400,
+                                ),
+                                const SizedBox(width: 5),
+                                Expanded(
+                                  child: Text(
+                                    item.itemName,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  '×${item.quantity}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  currency.format(item.subtotal),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        // Row 3: technician(s) + payment method
+                        Row(
+                          children: [
+                            if (techs.isNotEmpty) ...[
+                              Icon(
+                                Icons.badge_outlined,
+                                size: 12,
+                                color: Colors.blue.shade300,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  techs,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.blue.shade400,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ] else
+                              const Expanded(child: SizedBox()),
+                            if (paymentMethods.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Icon(
+                                Icons.payment_outlined,
+                                size: 12,
+                                color: Colors.grey.shade400,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                paymentMethods,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              // Right: total + status badge
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    currency.format(tx.totalAmount),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: statusColor.withOpacity(0.4)),
-                    ),
-                    child: Text(
-                      statusLabel,
+                const SizedBox(width: 12),
+                // Right: total + status badge
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      currency.format(tx.totalAmount),
                       style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: statusColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        decoration: isVoided
+                            ? TextDecoration.lineThrough
+                            : null,
+                        color: isVoided ? Colors.red.shade300 : null,
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: statusColor.withOpacity(0.4)),
+                      ),
+                      child: Text(
+                        statusLabel,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: statusColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

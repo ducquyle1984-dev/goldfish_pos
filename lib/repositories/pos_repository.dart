@@ -463,12 +463,14 @@ class PosRepository {
         );
   }
 
-  /// Returns paid/completed transactions whose createdAt falls within
-  /// [start, end] (inclusive). Voided transactions are excluded.
+  /// Returns transactions whose createdAt falls within [start, end] (inclusive).
+  /// Voided transactions are excluded by default; pass [includeVoided] = true
+  /// to include them.
   Future<List<Transaction>> getTransactionsByDateRange(
     DateTime start,
-    DateTime end,
-  ) async {
+    DateTime end, {
+    bool includeVoided = false,
+  }) async {
     final from = Timestamp.fromDate(
       DateTime(start.year, start.month, start.day, 0, 0, 0),
     );
@@ -482,7 +484,7 @@ class PosRepository {
         .get();
     final txns = snapshot.docs
         .map((doc) => Transaction.fromFirestore(doc))
-        .where((tx) => tx.status != TransactionStatus.voided)
+        .where((tx) => includeVoided || tx.status != TransactionStatus.voided)
         .toList();
     // Sort by createdAt ascending (avoids needing a Firestore composite index)
     txns.sort((a, b) => a.createdAt.compareTo(b.createdAt));
