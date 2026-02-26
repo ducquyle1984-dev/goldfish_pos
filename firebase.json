@@ -1,1 +1,27 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"goldfish-pos","appId":"1:17698616303:android:c05ef84f2f681a157d7c1a","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"goldfish-pos","configurations":{"android":"1:17698616303:android:c05ef84f2f681a157d7c1a","ios":"1:17698616303:ios:512b7e0f688a45747d7c1a","macos":"1:17698616303:ios:512b7e0f688a45747d7c1a","web":"1:17698616303:web:1f32dc5c188a61cb7d7c1a","windows":"1:17698616303:web:b2a52f5ef6b0ea747d7c1a"}}}}}}
+{
+  "hosting": {
+    "public": "build/web",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ],
+    "headers": [
+      {
+        "source": "**/*.@(js|css|wasm)",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        ]
+      },
+      {
+        "source": "/index.html",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache" }
+        ]
+      }
+    ]
+  },
+  "flutter": {"platforms":{"android":{"default":{"projectId":"goldfish-pos","appId":"1:17698616303:android:c05ef84f2f681a157d7c1a","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"goldfish-pos","configurations":{"android":"1:17698616303:android:c05ef84f2f681a157d7c1a","ios":"1:17698616303:ios:512b7e0f688a45747d7c1a","macos":"1:17698616303:ios:512b7e0f688a45747d7c1a","web":"1:17698616303:web:1f32dc5c188a61cb7d7c1a","windows":"1:17698616303:web:b2a52f5ef6b0ea747d7c1a"}}}}}
+}
