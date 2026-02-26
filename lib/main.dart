@@ -5,6 +5,7 @@ import 'firebase_options.dart';
 
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/kiosk_check_in_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,6 +40,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
       home: const AuthenticationWrapper(),
+      routes: {'/kiosk': (_) => const KioskCheckInScreen()},
     );
   }
 }

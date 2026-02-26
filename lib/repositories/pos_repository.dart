@@ -254,6 +254,23 @@ class PosRepository {
     return snapshot.docs.map((doc) => Customer.fromFirestore(doc)).toList();
   }
 
+  /// Looks up an active customer by phone number (exact match).
+  /// Returns null if no match is found.
+  Future<Customer?> getCustomerByPhone(String phone) async {
+    try {
+      final snapshot = await _firestore
+          .collection('customers')
+          .where('phone', isEqualTo: phone)
+          .where('isActive', isEqualTo: true)
+          .limit(1)
+          .get();
+      if (snapshot.docs.isEmpty) return null;
+      return Customer.fromFirestore(snapshot.docs.first);
+    } catch (e) {
+      throw Exception('Failed to look up customer by phone: $e');
+    }
+  }
+
   // ==================== Payment Method Operations ====================
 
   Future<String> createPaymentMethod(PaymentMethod paymentMethod) async {
