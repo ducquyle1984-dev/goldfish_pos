@@ -599,63 +599,50 @@ class _ReportsScreenState extends State<ReportsScreen>
                         _setQuick(first, last, 'Last Month');
                       },
                     ),
-                    const SizedBox(width: 8),
-                    const VerticalDivider(
-                      width: 1,
-                      thickness: 1,
-                      color: Colors.white24,
+                  ],
+                ),
+              ),
+              const SizedBox(height: 6),
+              // Include voided toggle row
+              GestureDetector(
+                onTap: () {
+                  setState(() => _includeVoided = !_includeVoided);
+                  _load();
+                },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      height: 24,
+                      width: 44,
+                      child: FittedBox(
+                        fit: BoxFit.fill,
+                        child: Switch(
+                          value: _includeVoided,
+                          onChanged: (v) {
+                            setState(() => _includeVoided = v);
+                            _load();
+                          },
+                          activeColor: Colors.white,
+                          activeTrackColor: Colors.blue.shade300,
+                          inactiveThumbColor: Colors.white70,
+                          inactiveTrackColor: Colors.white24,
+                        ),
+                      ),
                     ),
-                    const SizedBox(width: 8),
-                    // Voided toggle
-                    GestureDetector(
-                      onTap: () {
-                        setState(() => _includeVoided = !_includeVoided);
-                        _load();
-                      },
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _includeVoided
-                              ? Colors.red.shade400
-                              : Colors.white.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: _includeVoided
-                                ? Colors.red.shade200
-                                : Colors.white.withOpacity(0.35),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _includeVoided
-                                  ? Icons.visibility
-                                  : Icons.visibility_off_outlined,
-                              size: 13,
-                              color: Colors.white,
-                            ),
-                            const SizedBox(width: 5),
-                            const Text(
-                              'Voided',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Include Voided',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               TabBar(
                 controller: _tab,
                 labelColor: Colors.white,
