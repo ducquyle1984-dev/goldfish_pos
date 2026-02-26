@@ -8,6 +8,7 @@ import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/kiosk_check_in_screen.dart';
 import 'screens/device_role_screen.dart';
+import 'utils/platform_utils.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -158,9 +159,11 @@ class AuthenticationWrapper extends StatelessWidget {
           );
         }
         if (snapshot.hasData) {
-          // On web (iPad / desktop browser) let the user choose their role.
-          // On native (iOS app, Windows, etc.) go straight to the POS.
-          return kIsWeb ? const DeviceRoleScreen() : const HomeScreen();
+          // Show the role-selection screen only when running in a mobile/tablet
+          // browser (iPad, iPhone, Android). Desktop browsers and native apps
+          // go straight to the POS.
+          final showRoleScreen = kIsWeb && isMobileOrTabletBrowser();
+          return showRoleScreen ? const DeviceRoleScreen() : const HomeScreen();
         }
         return const LoginScreen();
       },
