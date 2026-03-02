@@ -449,20 +449,19 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                     _InstallStep(
                       number: '1',
                       text:
-                          'Click "Download Installer" — three files will appear in your Downloads folder.',
+                          'Click "Download Installer" — files will download to your Downloads folder.',
                     ),
                     _InstallStep(
                       number: '2',
                       text:
-                          'Move all three files to the same folder, then right-click '
-                          'install_bridge_service.ps1 → "Run with PowerShell".\n'
-                          'It installs everything and confirms the helper app is running.',
+                          'Right-click  install_bridge_service.ps1  →  "Run with PowerShell".\n'
+                          'It installs everything automatically and confirms the helper app is running.',
                     ),
                     _InstallStep(
                       number: '3',
                       text:
                           'Click the refresh icon (↻) above. If still Offline, '
-                          'double-click run_bridge_debug.bat to see the exact error.',
+                          'double-click  run_bridge_debug.bat  to see the exact error.',
                     ),
 
                     // ── Offline troubleshooter ──────────────────────────
@@ -596,7 +595,6 @@ void _downloadInstaller(int port) {
 \$TaskName   = 'GoldfishPOS_CashDrawerBridge'
 \$AppDir     = "\$env:APPDATA\\GoldfishPOS"
 \$Port       = $port
-\$ScriptSrc  = Join-Path \$PSScriptRoot 'cash_drawer_bridge.py'
 \$ScriptDest = Join-Path \$AppDir 'cash_drawer_bridge.py'
 \$LauncherDest = Join-Path \$AppDir 'run_bridge.bat'
 \$LogDest    = Join-Path \$AppDir 'bridge.log'
@@ -647,11 +645,93 @@ if ("\$check".Trim() -ne 'ok') {
 }
 Write-Ok 'pywin32 verified.'
 
-# 4. Install files
+# 4. Install files (bridge script is embedded — no external file needed)
 Write-Step "Installing to \$AppDir..."
-if (-not (Test-Path \$ScriptSrc)) { Write-Err 'cash_drawer_bridge.py not found. Make sure both files are in the same folder.' }
 New-Item -ItemType Directory -Force -Path \$AppDir | Out-Null
-Copy-Item \$ScriptSrc \$ScriptDest -Force
+\$bridgeScript = @'
+#!/usr/bin/env python3
+# Goldfish POS Cash Drawer Bridge
+# Log: %APPDATA%\\GoldfishPOS\\bridge.log
+import sys, json, os, logging
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+PORT = $port
+PRINTER_NAME = ""
+KICK_COMMAND = bytes([0x1B, 0x70, 0x00, 0x19, 0xFA])
+
+_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bridge.log')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+    handlers=[logging.FileHandler(_log_path, encoding='utf-8'), logging.StreamHandler(sys.stdout)],
+)
+log = logging.getLogger('bridge')
+
+
+def open_drawer():
+    try:
+        import win32print
+        printer = PRINTER_NAME or win32print.GetDefaultPrinter()
+        log.info('Opening drawer - printer: %s', printer)
+        h = win32print.OpenPrinter(printer)
+        try:
+            win32print.StartDocPrinter(h, 1, ('Cash Drawer', None, 'RAW'))
+            try:
+                win32print.StartPagePrinter(h)
+                win32print.WritePrinter(h, KICK_COMMAND)
+                win32print.EndPagePrinter(h)
+            finally:
+                win32print.EndDocPrinter(h)
+        finally:
+            win32print.ClosePrinter(h)
+        log.info('Drawer opened OK.')
+        return True, 'ok'
+    except Exception as e:
+        log.error('open_drawer: %s', e)
+        return False, str(e)
+
+
+class _H(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *a): log.debug(fmt, *a)
+    def _cors(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+    def do_OPTIONS(self):
+        self.send_response(204); self._cors(); self.end_headers()
+    def do_GET(self):
+        if self.path == '/status':
+            body = json.dumps({'ok': True, 'port': PORT}).encode()
+            self.send_response(200); self._cors()
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers(); self.wfile.write(body)
+        else:
+            self.send_response(404); self.end_headers()
+    def do_POST(self):
+        if self.path == '/open-drawer':
+            ok, msg = open_drawer()
+            body = json.dumps({'ok': ok, 'message': msg}).encode()
+            self.send_response(200 if ok else 500); self._cors()
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers(); self.wfile.write(body)
+        else:
+            self.send_response(404); self.end_headers()
+
+
+if __name__ == '__main__':
+    log.info('Cash Drawer Bridge starting - port %d - log: %s', PORT, _log_path)
+    try:
+        HTTPServer(('localhost', PORT), _H).serve_forever()
+    except OSError as e:
+        log.critical('Cannot bind port %d: %s', PORT, e); sys.exit(1)
+    except KeyboardInterrupt:
+        log.info('Stopped.'); sys.exit(0)
+    except Exception as e:
+        log.critical('Fatal: %s', e, exc_info=True); sys.exit(1)
+'@
+[System.IO.File]::WriteAllText(\$ScriptDest, \$bridgeScript, [System.Text.Encoding]::UTF8)
 
 # Write a .bat launcher — more reliable than calling pythonw.exe directly from Task Scheduler
 Set-Content \$LauncherDest "@echo off\`r\`n\$pythonExe \"\$ScriptDest\" >> \"\$LogDest\" 2>&1" -Encoding ascii
@@ -710,17 +790,27 @@ Read-Host 'Press Enter to close'
   final debugBat = '''@echo off
 echo Goldfish POS Cash Drawer Bridge - Debug Mode
 echo =============================================
-echo Any errors will be shown here.
-echo Press Ctrl+C to stop.
+echo Any errors will be shown here. Press Ctrl+C to stop.
 echo.
-set APPDIR=%APPDATA%\\GoldfishPOS
-if not exist "%APPDIR%\\cash_drawer_bridge.py" (
-    echo ERROR: cash_drawer_bridge.py not found at %APPDIR%
-    echo Please run install_bridge_service.ps1 first.
-    pause
-    exit /b 1
+set PYFILE=%APPDATA%\\GoldfishPOS\\cash_drawer_bridge.py
+if not exist "%PYFILE%" (
+    if exist "%~dp0cash_drawer_bridge.py" (
+        echo Note: Using cash_drawer_bridge.py from this folder.
+        echo       Run install_bridge_service.ps1 for permanent setup.
+        echo.
+        set PYFILE=%~dp0cash_drawer_bridge.py
+    ) else (
+        echo ERROR: cash_drawer_bridge.py not found.
+        echo.
+        echo Either:
+        echo   1. Run install_bridge_service.ps1 first  (recommended)
+        echo   2. Place cash_drawer_bridge.py in the same folder as this bat
+        echo.
+        pause
+        exit /b 1
+    )
 )
-python "%APPDIR%\\cash_drawer_bridge.py"
+python "%PYFILE%"
 echo.
 echo Bridge stopped.
 pause
