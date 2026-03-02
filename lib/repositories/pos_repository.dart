@@ -1,4 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart' hide Transaction;
+import 'package:goldfish_pos/models/appointment_model.dart';
+import 'package:goldfish_pos/models/booking_settings_model.dart';
 import 'package:goldfish_pos/models/cash_drawer_settings_model.dart';
 import 'package:goldfish_pos/models/item_category_model.dart';
 import 'package:goldfish_pos/models/item_model.dart';
@@ -598,6 +600,117 @@ class PosRepository {
           .set(settings.toFirestore(), SetOptions(merge: true));
     } catch (e) {
       throw Exception('Failed to save cash drawer settings: $e');
+    }
+  }
+
+  // ==================== Appointment Operations ====================
+
+  Future<String> createAppointment(Appointment appt) async {
+    try {
+      final docRef = await _firestore
+          .collection('appointments')
+          .add(appt.toFirestore());
+      return docRef.id;
+    } catch (e) {
+      throw Exception('Failed to create appointment: $e');
+    }
+  }
+
+  Future<void> updateAppointment(Appointment appt) async {
+    try {
+      await _firestore.collection('appointments').doc(appt.id).update({
+        ...appt.toFirestore(),
+        'updatedAt': Timestamp.now(),
+      });
+    } catch (e) {
+      throw Exception('Failed to update appointment: $e');
+    }
+  }
+
+  Future<void> deleteAppointment(String id) async {
+    try {
+      await _firestore.collection('appointments').doc(id).delete();
+    } catch (e) {
+      throw Exception('Failed to delete appointment: $e');
+    }
+  }
+
+  /// Stream of all appointments scheduled for [date] (midnight–midnight).
+  Stream<List<Appointment>> getAppointmentsForDate(DateTime date) {
+    final start = DateTime(date.year, date.month, date.day);
+    final end = start.add(const Duration(days: 1));
+    return _firestore
+        .collection('appointments')
+        .where('scheduledAt', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('scheduledAt', isLessThan: Timestamp.fromDate(end))
+        .orderBy('scheduledAt')
+        .snapshots()
+        .map((s) => s.docs.map(Appointment.fromFirestore).toList());
+  }
+
+  /// Stream of appointments for a date range (inclusive).
+  Stream<List<Appointment>> getAppointmentsInRange(DateTime from, DateTime to) {
+    final start = DateTime(from.year, from.month, from.day);
+    final end = DateTime(
+      to.year,
+      to.month,
+      to.day,
+    ).add(const Duration(days: 1));
+    return _firestore
+        .collection('appointments')
+        .where('scheduledAt', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('scheduledAt', isLessThan: Timestamp.fromDate(end))
+        .orderBy('scheduledAt')
+        .snapshots()
+        .map((s) => s.docs.map(Appointment.fromFirestore).toList());
+  }
+
+  Future<void> updateAppointmentStatus(
+    String id,
+    AppointmentStatus status,
+  ) async {
+    try {
+      await _firestore.collection('appointments').doc(id).update({
+        'status': status.name,
+        'updatedAt': Timestamp.now(),
+      });
+    } catch (e) {
+      throw Exception('Failed to update appointment status: $e');
+    }
+  }
+
+  // ==================== Booking Settings ====================
+
+  Future<BookingSettings> getBookingSettings() async {
+    try {
+      final doc = await _firestore.collection('settings').doc('booking').get();
+      if (doc.exists) return BookingSettings.fromFirestore(doc);
+      return BookingSettings.defaults;
+    } catch (e) {
+      throw Exception('Failed to get booking settings: $e');
+    }
+  }
+
+  Stream<BookingSettings> streamBookingSettings() {
+    return _firestore
+        .collection('settings')
+        .doc('booking')
+        .snapshots()
+        .map(
+          (doc) => doc.exists
+              ? BookingSettings.fromFirestore(doc)
+              : BookingSettings.defaults,
+        );
+  }
+
+  Future<void> saveBookingSettings(BookingSettings settings) async {
+    try {
+      await _firestore
+          .collection('settings')
+          .doc('booking')
+          .set(settings.toFirestore());
+    } catch (e) {
+      throw Exception('Failed to save booking settings: $e');
     }
   }
 }

@@ -8,6 +8,7 @@ import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/kiosk_check_in_screen.dart';
 import 'screens/device_role_screen.dart';
+import 'screens/customer_booking_screen.dart';
 import 'utils/platform_utils.dart';
 
 Future<void> main() async {
@@ -43,7 +44,10 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
       home: const AuthenticationWrapper(),
-      routes: {'/kiosk': (_) => const KioskCheckInScreen()},
+      routes: {
+        '/kiosk': (_) => const KioskCheckInScreen(),
+        '/book': (_) => const CustomerBookingScreen(),
+      },
     );
   }
 }

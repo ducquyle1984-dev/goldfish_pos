@@ -1,15 +1,19 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:goldfish_pos/models/appointment_model.dart';
 import 'package:goldfish_pos/models/customer_model.dart';
 import 'package:goldfish_pos/models/employee_model.dart';
 import 'package:goldfish_pos/models/transaction_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/screens/admin/admin_dashboard_screen.dart';
+import 'package:goldfish_pos/screens/booking_screen.dart';
 import 'package:goldfish_pos/screens/reports_screen.dart';
 import 'package:goldfish_pos/screens/transaction_create_screen.dart';
 import 'package:goldfish_pos/services/cash_drawer_service.dart';
 import 'package:goldfish_pos/widgets/customer_check_in_dialog.dart';
+import 'package:goldfish_pos/widgets/quick_book_dialog.dart';
+import 'package:intl/intl.dart';
 
 /// Main dashboard screen with role-based navigation.
 class HomeScreen extends StatefulWidget {
@@ -146,7 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 0:
         return _buildDashboard();
       case 1:
-        return _buildPlaceholder('Booking');
+        return const BookingScreen();
       case 2:
         return const ReportsScreen();
       case 3:
@@ -164,6 +168,10 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           // ── Top action bar ───────────────────────────────────────────
           _buildActionBar(),
+          const SizedBox(height: 24),
+
+          // ── Today's Appointments ────────────────────────────────────────
+          _TodayAppointmentsBar(repo: _repo),
           const SizedBox(height: 24),
 
           // Pending Transactions
@@ -233,6 +241,30 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
           ),
           onPressed: _openDrawer,
+        ),
+        const SizedBox(width: 10),
+
+        // Book Appointment button
+        OutlinedButton.icon(
+          icon: const Icon(Icons.calendar_month_outlined, size: 18),
+          label: const Text('Book Appt'),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          ),
+          onPressed: () async {
+            final result = await showQuickBookDialog(context);
+            if (result != null && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Booked ${result.customerName} at ${DateFormat.jm().format(result.scheduledAt)}',
+                  ),
+                  backgroundColor: Colors.teal,
+                  duration: const Duration(seconds: 3),
+                ),
+              );
+            }
+          },
         ),
         const SizedBox(width: 10),
 
@@ -697,17 +729,160 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+}
 
-  Widget _buildPlaceholder(String title) {
-    return Center(
+// ─────────────────────────────────────────────────────────────────────────────
+// Today's appointments compact bar (non-intrusive, shown on the dashboard).
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _TodayAppointmentsBar extends StatelessWidget {
+  final PosRepository repo;
+  const _TodayAppointmentsBar({required this.repo});
+
+  @override
+  Widget build(BuildContext context) {
+    final today = DateTime.now();
+    return StreamBuilder<List<Appointment>>(
+      stream: repo.getAppointmentsForDate(today),
+      builder: (context, snapshot) {
+        final appts = (snapshot.data ?? [])
+            .where(
+              (a) =>
+                  a.status != AppointmentStatus.cancelled &&
+                  a.status != AppointmentStatus.completed &&
+                  a.status != AppointmentStatus.noShow,
+            )
+            .toList();
+
+        // If no appointments, show a minimal placeholder rather than nothing
+        if (appts.isEmpty && !snapshot.hasData) return const SizedBox();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  "Today's Appointments",
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  appts.isEmpty ? 'none scheduled' : '${appts.length} upcoming',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade500),
+                ),
+                // Pending confirmation badge
+                if (appts.any(
+                  (a) => a.status == AppointmentStatus.pendingConfirmation,
+                )) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade100,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.orange.shade300),
+                    ),
+                    child: Text(
+                      '${appts.where((a) => a.status == AppointmentStatus.pendingConfirmation).length} need confirmation',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.orange.shade800,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            if (appts.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 80,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  itemCount: appts.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (_, i) => _ApptChip(appt: appts[i]),
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Compact appointment chip for the home screen bar.
+class _ApptChip extends StatelessWidget {
+  final Appointment appt;
+  const _ApptChip({required this.appt});
+
+  @override
+  Widget build(BuildContext context) {
+    final timeLabel = DateFormat.jm().format(appt.scheduledAt);
+    final urgency = appt.urgencyColor;
+    final isPending = appt.status == AppointmentStatus.pendingConfirmation;
+
+    return Container(
+      width: 160,
+      decoration: BoxDecoration(
+        color: urgency.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: urgency.withOpacity(0.35)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Icon(Icons.construction, size: 64, color: Colors.grey.shade400),
-          const SizedBox(height: 16),
-          Text('$title', style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 8),
-          Text('Coming soon...', style: TextStyle(color: Colors.grey.shade600)),
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: urgency,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 5),
+              Text(
+                timeLabel,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                  color: urgency,
+                ),
+              ),
+              const Spacer(),
+              if (isPending)
+                const Icon(Icons.hourglass_top, size: 12, color: Colors.orange),
+            ],
+          ),
+          Text(
+            appt.customerName,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            appt.serviceName,
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );

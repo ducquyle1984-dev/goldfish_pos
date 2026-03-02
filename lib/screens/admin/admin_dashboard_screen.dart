@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:goldfish_pos/screens/admin/booking_settings_screen.dart';
 import 'package:goldfish_pos/screens/admin/cash_drawer_settings_screen.dart';
 import 'package:goldfish_pos/screens/admin/customer_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/employee_management_screen.dart';
@@ -118,6 +119,17 @@ class AdminDashboardScreen extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) => const CashDrawerSettingsScreen(),
+                    ),
+                  ),
+                ),
+                _AdminCard(
+                  title: 'Booking',
+                  icon: Icons.calendar_month,
+                  color: Colors.teal,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const BookingSettingsScreen(),
                     ),
                   ),
                 ),
