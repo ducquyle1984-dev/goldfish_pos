@@ -736,7 +736,8 @@ if __name__ == '__main__':
 [System.IO.File]::WriteAllText(\$ScriptDest, \$bridgeScript, [System.Text.Encoding]::UTF8)
 
 # Write a .bat launcher - more reliable than calling pythonw.exe directly from Task Scheduler
-Set-Content \$LauncherDest "@echo off\`r\`n\$pythonExe \"\$ScriptDest\" >> \"\$LogDest\" 2>&1" -Encoding ascii
+\$batContent = "@echo off\`r\`n\`"\$pythonExe\`" \`"\$ScriptDest\`" >> \`"\$LogDest\`" 2>&1"
+[System.IO.File]::WriteAllText(\$LauncherDest, \$batContent, [System.Text.Encoding]::ASCII)
 Write-Ok 'Files installed.'
 
 # 5. Kill any existing bridge
