@@ -35,12 +35,12 @@ class AdminDashboardScreen extends StatelessWidget {
             const SizedBox(height: 32),
             // Admin Options Grid
             GridView.count(
-              crossAxisCount: 6, // 6 tiles per row
+              crossAxisCount: 4,
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               mainAxisSpacing: 12,
               crossAxisSpacing: 12,
-              childAspectRatio: 0.85, // slightly taller for compactness
+              childAspectRatio: 1.1,
               children: [
                 _AdminCard(
                   title: 'Employees',
