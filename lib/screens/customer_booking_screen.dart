@@ -35,6 +35,9 @@ class _CustomerBookingScreenState extends State<CustomerBookingScreen> {
   void initState() {
     super.initState();
     _loadSettings();
+    // Rebuild when text changes so the submit button reacts
+    _nameCtrl.addListener(() => setState(() {}));
+    _phoneCtrl.addListener(() => setState(() {}));
   }
 
   Future<void> _loadSettings() async {
@@ -468,7 +471,9 @@ class _CustomerBookingScreenState extends State<CustomerBookingScreen> {
         const SizedBox(height: 12),
         if (services.isNotEmpty)
           DropdownButtonFormField<String>(
-            value: _selectedService,
+            value: services.contains(_selectedService)
+                ? _selectedService
+                : services.first,
             decoration: const InputDecoration(
               labelText: 'Service *',
               border: OutlineInputBorder(),
