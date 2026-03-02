@@ -85,6 +85,23 @@ if ("$importTest".Trim() -ne 'ok') {
 
 Write-Ok 'pywin32 is ready.'
 
+# ── 2b. Run pywin32 post-install (registers DLLs — required on some systems) ──
+Write-Step 'Running pywin32 post-install step...'
+$postInstall = Join-Path (Split-Path $pythonExe) 'Scripts\pywin32_postinstall.py'
+if (Test-Path $postInstall) {
+    & $pythonExe $postInstall -install 2>&1 | Out-Null
+    Write-Ok 'pywin32 post-install complete.'
+} else {
+    Write-Host '  (pywin32_postinstall.py not found — skipping, likely not needed)' -ForegroundColor Yellow
+}
+
+# Verify import actually works after post-install
+$importTest2 = & $pythonExe -c "import win32print; print('ok')" 2>&1
+if ("$importTest2".Trim() -ne 'ok') {
+    Write-Err "win32print still cannot be imported after post-install: $importTest2"
+}
+Write-Ok 'win32print import verified.'
+
 # ── 3. Copy bridge script to permanent location ───────────────────────────────
 Write-Step "Installing bridge script to: $AppDir"
 

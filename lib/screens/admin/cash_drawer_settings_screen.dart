@@ -125,8 +125,9 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
           );
         case CashDrawerResult.bridgeNotRunning:
           _showError(
-            'Bridge script is not running.\n'
-            'Start it with: python cash_drawer_bridge.py',
+            'Cash drawer bridge is not running on this PC.\n\n'
+            'Fix: Re-run install_bridge_service.ps1 (right-click → Run with PowerShell).\n\n'
+            'Then check: %AppData%\\GoldfishPOS\\bridge.log for details.',
           );
         case CashDrawerResult.connectionFailed:
           _showError(
@@ -459,7 +460,8 @@ class _ModeOption extends StatelessWidget {
 
 void _downloadBridgeSetupFiles(int port) {
   // ── 1. Python bridge script (port embedded) ─────────────────────────────
-  final bridgeScript = '''#!/usr/bin/env python3
+  final bridgeScript =
+      '''#!/usr/bin/env python3
 """
 cash_drawer_bridge.py  —  Goldfish POS Cash Drawer Bridge
 Receives HTTP requests from the POS app and sends an ESC/POS kick command
@@ -477,6 +479,8 @@ The installer script registers this to run automatically at Windows login.
 
 import sys
 import json
+import os
+import logging
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 PORT = $port          # Must match Bridge Port in Admin > Cash Drawer Settings
@@ -486,14 +490,24 @@ PRINTER_NAME = ""     # Leave blank for Windows default printer
 # ESC/POS kick command — opens drawer on port 0 with ~50 ms pulse
 KICK_COMMAND = bytes([0x1B, 0x70, 0x00, 0x19, 0xFA])
 
+# Logging — writes to bridge.log next to this script
+_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bridge.log')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s  %(levelname)-7s  %(message)s',
+    handlers=[logging.FileHandler(_log_path, encoding='utf-8'), logging.StreamHandler(sys.stdout)],
+)
+log = logging.getLogger('bridge')
+
 
 def open_drawer():
     try:
         import win32print
         printer = PRINTER_NAME or win32print.GetDefaultPrinter()
+        log.info('Opening drawer on printer: %s', printer)
         handle = win32print.OpenPrinter(printer)
         try:
-            job = win32print.StartDocPrinter(handle, 1, ("Cash Drawer", None, "RAW"))
+            win32print.StartDocPrinter(handle, 1, ('Cash Drawer', None, 'RAW'))
             try:
                 win32print.StartPagePrinter(handle)
                 win32print.WritePrinter(handle, KICK_COMMAND)
@@ -502,33 +516,48 @@ def open_drawer():
                 win32print.EndDocPrinter(handle)
         finally:
             win32print.ClosePrinter(handle)
-        return True, "ok"
+        log.info('Drawer opened successfully.')
+        return True, 'ok'
     except Exception as e:
+        log.error('open_drawer failed: %s', e)
         return False, str(e)
 
 
 class _Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
-        print(fmt % args)
+        log.info(fmt, *args)
 
     def _cors(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
 
     def do_OPTIONS(self):
         self.send_response(204)
         self._cors()
         self.end_headers()
 
+    def do_GET(self):
+        if self.path == '/status':
+            body = json.dumps({'ok': True, 'port': PORT, 'log': _log_path}).encode()
+            self.send_response(200)
+            self._cors()
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def do_POST(self):
-        if self.path == "/open-drawer":
+        if self.path == '/open-drawer':
             ok, msg = open_drawer()
-            body = json.dumps({"ok": ok, "message": msg}).encode()
+            body = json.dumps({'ok': ok, 'message': msg}).encode()
             self.send_response(200 if ok else 500)
             self._cors()
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             self.wfile.write(body)
         else:
@@ -536,15 +565,20 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
 
-if __name__ == "__main__":
-    server = HTTPServer(("localhost", PORT), _Handler)
-    print(f"Cash drawer bridge listening on http://localhost:{port}/")
-    print("Press Ctrl+C to stop.")
+if __name__ == '__main__':
+    log.info('Goldfish POS Cash Drawer Bridge starting — port %d — log: %s', PORT, _log_path)
     try:
+        server = HTTPServer(('localhost', PORT), _Handler)
         server.serve_forever()
+    except OSError as e:
+        log.critical('Cannot bind to port %d: %s — is another instance running?', PORT, e)
+        sys.exit(1)
     except KeyboardInterrupt:
-        print("\\nStopped.")
+        log.info('Stopped.')
         sys.exit(0)
+    except Exception as e:
+        log.critical('Unexpected error: %s', e, exc_info=True)
+        sys.exit(1)
 ''';
 
   // ── 2. PowerShell installer script (fully static) ────────────────────────
@@ -606,10 +640,21 @@ if ("$importTest".Trim() -ne 'ok') {
     $pipExe = Join-Path (Split-Path $pythonExe) 'Scripts\pip.exe'
     if (-not (Test-Path $pipExe)) { $pipExe = 'pip' }
     & $pipExe install pywin32 | Out-Host
-    $importTest = & $pythonExe -c "import win32print; print('ok')" 2>&1
-    if ("$importTest".Trim() -ne 'ok') { Write-Err "pywin32 install failed: $importTest" }
 }
-Write-Ok 'pywin32 is ready.'
+Write-Ok 'pywin32 installed.'
+
+# 2b. Run pywin32 post-install (registers DLLs — required on some systems)
+Write-Step 'Running pywin32 post-install step...'
+$postInstall = Join-Path (Split-Path $pythonExe) 'Scripts\pywin32_postinstall.py'
+if (Test-Path $postInstall) {
+    & $pythonExe $postInstall -install 2>&1 | Out-Null
+    Write-Ok 'pywin32 post-install complete.'
+} else {
+    Write-Host '  (post-install script not found — skipping)' -ForegroundColor Yellow
+}
+$importTest = & $pythonExe -c "import win32print; print('ok')" 2>&1
+if ("$importTest".Trim() -ne 'ok') { Write-Err "win32print cannot be imported: $importTest" }
+Write-Ok 'win32print import verified.'
 
 # 3. Copy bridge script to permanent location
 Write-Step "Installing bridge script to: $AppDir"

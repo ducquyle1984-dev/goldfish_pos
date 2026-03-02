@@ -294,11 +294,12 @@ class _HomeScreenState extends State<HomeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Bridge script is not running on this PC. '
-              'Start it with: python cash_drawer_bridge.py',
+              'Cash drawer bridge is not running.\n'
+              'Check Task Manager for pythonw.exe, or re-run install_bridge_service.ps1.\n'
+              'Log: %AppData%\\GoldfishPOS\\bridge.log',
             ),
             backgroundColor: Colors.red,
-            duration: Duration(seconds: 5),
+            duration: Duration(seconds: 8),
           ),
         );
       case CashDrawerResult.webNotSupported:

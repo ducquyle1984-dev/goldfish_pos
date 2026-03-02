@@ -427,10 +427,12 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                'Bridge script is not running — start cash_drawer_bridge.py on this PC.',
+                'Cash drawer bridge is not running.\n'
+                'Re-run install_bridge_service.ps1, then check '
+                '%AppData%\\GoldfishPOS\\bridge.log',
               ),
               backgroundColor: Colors.orange,
-              duration: Duration(seconds: 5),
+              duration: Duration(seconds: 8),
             ),
           );
         case CashDrawerResult.webNotSupported:
