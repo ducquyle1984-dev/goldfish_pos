@@ -248,17 +248,19 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
             ),
             const SizedBox(height: 10),
 
-            // Step 3: if not running
+            // Step 3: debug tool
             const Text(
-              'Step 3 — If the page doesn\'t load, re-run the installer:',
+              'Step 3 — If the page doesn\'t load, run the debug tool:',
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 4),
             const Text(
-              '1. Open Windows Task Manager → Details tab.\n'
-              '2. Look for  pythonw.exe  in the list.\n'
-              '3. If not there, click "Download Installer" above and run it again.\n'
-              '4. Check the log at:  %AppData%\\GoldfishPOS\\bridge.log',
+              'Double-click  run_bridge_debug.bat  (from the Download).\n'
+              'A black window will open showing the exact error.\n\n'
+              'Common errors:\n'
+              '  "No module named win32print" → re-run install_bridge_service.ps1 as Administrator\n'
+              '  "Address already in use" → another instance is already running (good!)\n'
+              '  "No default printer" → set a default printer in Windows Settings first',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
@@ -447,18 +449,20 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                     _InstallStep(
                       number: '1',
                       text:
-                          'Click "Download Installer" — two files will appear in your Downloads folder.',
+                          'Click "Download Installer" — three files will appear in your Downloads folder.',
                     ),
                     _InstallStep(
                       number: '2',
                       text:
-                          'Right-click  install_bridge_service.ps1  →  "Run with PowerShell".\n'
-                          'It installs everything automatically and starts the helper app.',
+                          'Move all three files to the same folder, then right-click '
+                          'install_bridge_service.ps1 → "Run with PowerShell".\n'
+                          'It installs everything and confirms the helper app is running.',
                     ),
                     _InstallStep(
                       number: '3',
                       text:
-                          'Click the refresh icon (↻) above to confirm the status shows Online.',
+                          'Click the refresh icon (↻) above. If still Offline, '
+                          'double-click run_bridge_debug.bat to see the exact error.',
                     ),
 
                     // ── Offline troubleshooter ──────────────────────────
@@ -585,83 +589,142 @@ class _InstallStep extends StatelessWidget {
 // ── Download helper ───────────────────────────────────────────────────────────
 
 void _downloadInstaller(int port) {
-  const installer = r"""
+  final installer =
+      """
 #Requires -Version 5.1
-$ErrorActionPreference = 'Stop'
-$TaskName   = 'GoldfishPOS_CashDrawerBridge'
-$AppDir     = "$env:APPDATA\GoldfishPOS"
-$ScriptName = 'cash_drawer_bridge.py'
-$ScriptSrc  = Join-Path $PSScriptRoot $ScriptName
-$ScriptDest = Join-Path $AppDir $ScriptName
+\$ErrorActionPreference = 'Stop'
+\$TaskName   = 'GoldfishPOS_CashDrawerBridge'
+\$AppDir     = "\$env:APPDATA\\GoldfishPOS"
+\$Port       = $port
+\$ScriptSrc  = Join-Path \$PSScriptRoot 'cash_drawer_bridge.py'
+\$ScriptDest = Join-Path \$AppDir 'cash_drawer_bridge.py'
+\$LauncherDest = Join-Path \$AppDir 'run_bridge.bat'
+\$LogDest    = Join-Path \$AppDir 'bridge.log'
 
-function Write-Step { param($msg) Write-Host "  >> $msg" -ForegroundColor Cyan }
-function Write-Ok   { param($msg) Write-Host "  OK  $msg" -ForegroundColor Green }
-function Write-Err  { param($msg) Write-Host "`n  ERROR: $msg`n" -ForegroundColor Red; Read-Host 'Press Enter to close'; exit 1 }
+function Write-Step { param(\$msg) Write-Host "  >> \$msg" -ForegroundColor Cyan }
+function Write-Ok   { param(\$msg) Write-Host "  OK  \$msg" -ForegroundColor Green }
+function Write-Err  { param(\$msg) Write-Host "\`n  ERROR: \$msg\`n" -ForegroundColor Red; Read-Host 'Press Enter to close'; exit 1 }
+function Write-Warn { param(\$msg) Write-Host "  !!  \$msg" -ForegroundColor Yellow }
 
 Write-Host ''
-Write-Host '  Goldfish POS — Cash Drawer Setup' -ForegroundColor Cyan
+Write-Host '  Goldfish POS - Cash Drawer Setup' -ForegroundColor Cyan
 Write-Host ''
 
 # 1. Find Python
 Write-Step 'Looking for Python 3...'
-$pythonExe = $null
-try { $pythonExe = (Get-Command python.exe -ErrorAction Stop).Source } catch {}
-if (-not $pythonExe) {
-    foreach ($g in @("$env:LOCALAPPDATA\Programs\Python\Python3*\python.exe","C:\Python3*\python.exe","C:\Program Files\Python3*\python.exe")) {
-        $hit = Get-Item $g -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
-        if ($hit) { $pythonExe = $hit.FullName; break }
+\$pythonExe = \$null
+try { \$pythonExe = (Get-Command python.exe -ErrorAction Stop).Source } catch {}
+if (-not \$pythonExe) {
+    foreach (\$g in @("\$env:LOCALAPPDATA\\Programs\\Python\\Python3*\\python.exe","C:\\Python3*\\python.exe","C:\\Program Files\\Python3*\\python.exe")) {
+        \$hit = Get-Item \$g -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+        if (\$hit) { \$pythonExe = \$hit.FullName; break }
     }
 }
-if (-not $pythonExe) { Write-Err 'Python 3 not found. Install from https://python.org (check "Add to PATH") then re-run.' }
-Write-Ok "Python: $pythonExe"
-
-$pythonwExe = Join-Path (Split-Path $pythonExe) 'pythonw.exe'
-if (-not (Test-Path $pythonwExe)) { $pythonwExe = $pythonExe }
+if (-not \$pythonExe) { Write-Err 'Python 3 not found. Install from https://python.org  (check "Add to PATH")  then re-run.' }
+Write-Ok "Python: \$pythonExe"
 
 # 2. Install pywin32
 Write-Step 'Installing pywin32...'
-$pipExe = Join-Path (Split-Path $pythonExe) 'Scripts\pip.exe'
-if (-not (Test-Path $pipExe)) { $pipExe = 'pip' }
-& $pipExe install pywin32 | Out-Host
+\$pipExe = Join-Path (Split-Path \$pythonExe) 'Scripts\\pip.exe'
+if (-not (Test-Path \$pipExe)) { \$pipExe = 'pip' }
+& \$pipExe install --upgrade pywin32 2>&1 | Out-Host
+Write-Ok 'pywin32 installed.'
 
-# 3. pywin32 post-install (registers DLLs)
+# 3. pywin32 post-install  (registers DLLs — critical step)
 Write-Step 'Registering pywin32 DLLs...'
-$postInstall = Join-Path (Split-Path $pythonExe) 'Scripts\pywin32_postinstall.py'
-if (Test-Path $postInstall) { & $pythonExe $postInstall -install 2>&1 | Out-Null }
+\$postInstall = Join-Path (Split-Path \$pythonExe) 'Scripts\\pywin32_postinstall.py'
+if (Test-Path \$postInstall) {
+    \$out = & \$pythonExe \$postInstall -install 2>&1
+    Write-Host (\$out | Out-String)
+} else {
+    Write-Warn 'pywin32_postinstall.py not found - trying alternate method'
+    \$out = & \$pythonExe -c "import pywin32_bootstrap" 2>&1
+}
 
-$check = & $pythonExe -c "import win32print; print('ok')" 2>&1
-if ("$check".Trim() -ne 'ok') { Write-Err "win32print import failed: $check" }
-Write-Ok 'pywin32 ready.'
+\$check = & \$pythonExe -c "import win32print; print('ok')" 2>&1
+if ("\$check".Trim() -ne 'ok') {
+    Write-Err "win32print still cannot be imported: \$check\`n\`nTry running this installer as Administrator (right-click -> Run as Administrator)."
+}
+Write-Ok 'pywin32 verified.'
 
-# 4. Copy script
-Write-Step "Copying to $AppDir..."
-if (-not (Test-Path $ScriptSrc)) { Write-Err "cash_drawer_bridge.py not found next to this installer." }
-New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
-Copy-Item $ScriptSrc $ScriptDest -Force
-Write-Ok 'Script installed.'
+# 4. Install files
+Write-Step "Installing to \$AppDir..."
+if (-not (Test-Path \$ScriptSrc)) { Write-Err 'cash_drawer_bridge.py not found. Make sure both files are in the same folder.' }
+New-Item -ItemType Directory -Force -Path \$AppDir | Out-Null
+Copy-Item \$ScriptSrc \$ScriptDest -Force
 
-# 5. Register startup task
-Write-Step 'Registering startup task...'
-Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-$action    = New-ScheduledTaskAction -Execute $pythonwExe -Argument "`"$ScriptDest`""
-$trigger   = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-$settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew -StartWhenAvailable
-$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
+# Write a .bat launcher — more reliable than calling pythonw.exe directly from Task Scheduler
+Set-Content \$LauncherDest "@echo off\`r\`n\$pythonExe \"\$ScriptDest\" >> \"\$LogDest\" 2>&1" -Encoding ascii
+Write-Ok 'Files installed.'
+
+# 5. Kill any existing bridge
+Write-Step 'Stopping any existing bridge...'
+Get-Process -Name 'python*' -ErrorAction SilentlyContinue | Where-Object {
+    \$_.CommandLine -like '*cash_drawer_bridge*'
+} | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 500
+
+# 6. Register startup task (runs the .bat launcher)
+Write-Step 'Registering Windows startup task...'
+Unregister-ScheduledTask -TaskName \$TaskName -Confirm:\$false -ErrorAction SilentlyContinue | Out-Null
+\$action    = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c \`"\$LauncherDest\`""
+\$trigger   = New-ScheduledTaskTrigger -AtLogOn -User \$env:USERNAME
+\$settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew -StartWhenAvailable
+\$principal = New-ScheduledTaskPrincipal -UserId "\$env:USERDOMAIN\\\$env:USERNAME" -LogonType Interactive
+Register-ScheduledTask -TaskName \$TaskName -Action \$action -Trigger \$trigger -Settings \$settings -Principal \$principal -Force | Out-Null
 Write-Ok 'Startup task registered.'
 
-# 6. Start now
-Start-ScheduledTask -TaskName $TaskName
-Start-Sleep -Seconds 2
-$state = (Get-ScheduledTask -TaskName $TaskName).State
-if ($state -eq 'Running') { Write-Ok 'Helper app is running!' }
-else { Write-Host "  Helper app state: '$state' — will start on next login." -ForegroundColor Yellow }
+# 7. Start the bridge NOW directly (not via task, to capture any startup errors)
+Write-Step 'Starting bridge...'
+Start-Process -FilePath \$pythonExe -ArgumentList "\`"\$ScriptDest\`"" -WindowStyle Hidden -RedirectStandardOutput \$LogDest -RedirectStandardError \$LogDest
+Start-Sleep -Seconds 3
 
-Write-Host ''
-Write-Host '  Done! Go back to the POS app and click Refresh to confirm Online.' -ForegroundColor Green
+# 8. Verify it actually responds
+Write-Step "Testing http://localhost:\$Port/status ..."
+\$ok = \$false
+for (\$i = 0; \$i -lt 5; \$i++) {
+    try {
+        \$r = Invoke-WebRequest -Uri "http://localhost:\$Port/status" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        if (\$r.StatusCode -eq 200) { \$ok = \$true; break }
+    } catch {}
+    Start-Sleep -Seconds 1
+}
+
+if (\$ok) {
+    Write-Ok 'Bridge is responding on http://localhost:\$Port/status'
+    Write-Host ''
+    Write-Host '  SUCCESS! Go back to the POS app and click Refresh.' -ForegroundColor Green
+} else {
+    Write-Warn "Bridge did not respond. Showing log:"
+    Write-Host ''
+    if (Test-Path \$LogDest) { Get-Content \$LogDest | Select-Object -Last 30 | ForEach-Object { Write-Host "    \$_" } }
+    else { Write-Host "    (no log file found)" }
+    Write-Host ''
+    Write-Warn 'Try running  run_bridge_debug.bat  to see the error in a visible window.'
+}
+
 Write-Host ''
 Read-Host 'Press Enter to close'
 """;
+
+  final debugBat = '''@echo off
+echo Goldfish POS Cash Drawer Bridge - Debug Mode
+echo =============================================
+echo Any errors will be shown here.
+echo Press Ctrl+C to stop.
+echo.
+set APPDIR=%APPDATA%\\GoldfishPOS
+if not exist "%APPDIR%\\cash_drawer_bridge.py" (
+    echo ERROR: cash_drawer_bridge.py not found at %APPDIR%
+    echo Please run install_bridge_service.ps1 first.
+    pause
+    exit /b 1
+)
+python "%APPDIR%\\cash_drawer_bridge.py"
+echo.
+echo Bridge stopped.
+pause
+''';
 
   final bridge =
       '''#!/usr/bin/env python3
@@ -752,4 +815,5 @@ if __name__ == '__main__':
 
   downloadTextFile('install_bridge_service.ps1', installer);
   downloadTextFile('cash_drawer_bridge.py', bridge);
+  downloadTextFile('run_bridge_debug.bat', debugBat);
 }
