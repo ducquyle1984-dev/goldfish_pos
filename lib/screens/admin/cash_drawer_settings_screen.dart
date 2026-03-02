@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:goldfish_pos/models/cash_drawer_settings_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/services/cash_drawer_service.dart';
+import 'package:goldfish_pos/utils/file_downloader.dart';
 
 /// Admin screen to configure and test the cash drawer connection.
 class CashDrawerSettingsScreen extends StatefulWidget {
@@ -451,6 +452,210 @@ class _ModeOption extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
+// Download helper — triggered by the "Download Setup Files" button.
+// Generates both files with the current port baked in and saves them to the
+// browser's default download folder.
+// ---------------------------------------------------------------------------
+
+void _downloadBridgeSetupFiles(int port) {
+  // ── 1. Python bridge script (port embedded) ─────────────────────────────
+  final bridgeScript = '''#!/usr/bin/env python3
+"""
+cash_drawer_bridge.py  —  Goldfish POS Cash Drawer Bridge
+Receives HTTP requests from the POS app and sends an ESC/POS kick command
+to the USB receipt printer via Windows.
+
+Requirements:
+  pip install pywin32
+
+Run with:
+  pythonw cash_drawer_bridge.py   (no console window)
+  python  cash_drawer_bridge.py   (with console window)
+
+The installer script registers this to run automatically at Windows login.
+"""
+
+import sys
+import json
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+PORT = $port          # Must match Bridge Port in Admin > Cash Drawer Settings
+PRINTER_NAME = ""     # Leave blank for Windows default printer
+                      # Or set e.g.: PRINTER_NAME = "EPSON TM-T20III"
+
+# ESC/POS kick command — opens drawer on port 0 with ~50 ms pulse
+KICK_COMMAND = bytes([0x1B, 0x70, 0x00, 0x19, 0xFA])
+
+
+def open_drawer():
+    try:
+        import win32print
+        printer = PRINTER_NAME or win32print.GetDefaultPrinter()
+        handle = win32print.OpenPrinter(printer)
+        try:
+            job = win32print.StartDocPrinter(handle, 1, ("Cash Drawer", None, "RAW"))
+            try:
+                win32print.StartPagePrinter(handle)
+                win32print.WritePrinter(handle, KICK_COMMAND)
+                win32print.EndPagePrinter(handle)
+            finally:
+                win32print.EndDocPrinter(handle)
+        finally:
+            win32print.ClosePrinter(handle)
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+
+class _Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        print(fmt % args)
+
+    def _cors(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self._cors()
+        self.end_headers()
+
+    def do_POST(self):
+        if self.path == "/open-drawer":
+            ok, msg = open_drawer()
+            body = json.dumps({"ok": ok, "message": msg}).encode()
+            self.send_response(200 if ok else 500)
+            self._cors()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
+if __name__ == "__main__":
+    server = HTTPServer(("localhost", PORT), _Handler)
+    print(f"Cash drawer bridge listening on http://localhost:{port}/")
+    print("Press Ctrl+C to stop.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\\nStopped.")
+        sys.exit(0)
+''';
+
+  // ── 2. PowerShell installer script (fully static) ────────────────────────
+  const installerScript = r"""
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+    Installs the Goldfish POS cash drawer bridge as a Windows startup task.
+    Run ONCE — the bridge then starts automatically every time Windows starts.
+#>
+
+$ErrorActionPreference = 'Stop'
+
+$TaskName   = 'GoldfishPOS_CashDrawerBridge'
+$AppDir     = "$env:APPDATA\GoldfishPOS"
+$ScriptName = 'cash_drawer_bridge.py'
+$ScriptSrc  = Join-Path $PSScriptRoot $ScriptName
+$ScriptDest = Join-Path $AppDir $ScriptName
+
+function Write-Step { param($msg) Write-Host "  >> $msg" -ForegroundColor Cyan }
+function Write-Ok   { param($msg) Write-Host "  OK  $msg" -ForegroundColor Green }
+function Write-Err  { param($msg) Write-Host "`n  ERROR: $msg`n" -ForegroundColor Red; Read-Host 'Press Enter to close'; exit 1 }
+
+Write-Host ''
+Write-Host '==================================================' -ForegroundColor Cyan
+Write-Host '   Goldfish POS  --  Cash Drawer Bridge Installer ' -ForegroundColor Cyan
+Write-Host '==================================================' -ForegroundColor Cyan
+Write-Host ''
+
+# 1. Locate python.exe
+Write-Step 'Looking for Python 3...'
+$pythonExe = $null
+try { $pythonExe = (Get-Command python.exe -ErrorAction Stop).Source } catch {}
+if (-not $pythonExe) {
+    $globs = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python3*\python.exe",
+        "C:\Python3*\python.exe",
+        "C:\Program Files\Python3*\python.exe",
+        "C:\Program Files (x86)\Python3*\python.exe"
+    )
+    foreach ($g in $globs) {
+        $hit = Get-Item $g -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+        if ($hit) { $pythonExe = $hit.FullName; break }
+    }
+}
+if (-not $pythonExe) {
+    Write-Err 'Python 3 not found. Install from https://python.org (tick "Add to PATH"), then re-run this script.'
+}
+Write-Ok "Found Python: $pythonExe"
+
+$pythonwExe = Join-Path (Split-Path $pythonExe) 'pythonw.exe'
+if (-not (Test-Path $pythonwExe)) { $pythonwExe = $pythonExe }
+
+# 2. Ensure pywin32 is installed
+Write-Step 'Checking for pywin32...'
+$importTest = & $pythonExe -c "import win32print; print('ok')" 2>&1
+if ("$importTest".Trim() -ne 'ok') {
+    Write-Step 'Installing pywin32 (may take a minute)...'
+    $pipExe = Join-Path (Split-Path $pythonExe) 'Scripts\pip.exe'
+    if (-not (Test-Path $pipExe)) { $pipExe = 'pip' }
+    & $pipExe install pywin32 | Out-Host
+    $importTest = & $pythonExe -c "import win32print; print('ok')" 2>&1
+    if ("$importTest".Trim() -ne 'ok') { Write-Err "pywin32 install failed: $importTest" }
+}
+Write-Ok 'pywin32 is ready.'
+
+# 3. Copy bridge script to permanent location
+Write-Step "Installing bridge script to: $AppDir"
+if (-not (Test-Path $ScriptSrc)) {
+    Write-Err "Cannot find $ScriptSrc.`nMake sure cash_drawer_bridge.py is in the same folder as this installer."
+}
+New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
+Copy-Item $ScriptSrc $ScriptDest -Force
+Write-Ok "Script copied to: $ScriptDest"
+
+# 4. Register scheduled task
+Write-Step 'Registering Windows startup task...'
+Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+
+$action    = New-ScheduledTaskAction -Execute $pythonwExe -Argument "`"$ScriptDest`""
+$trigger   = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -RestartCount 5 `
+                 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew -StartWhenAvailable
+$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive
+
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
+    -Settings $settings -Principal $principal -Force | Out-Null
+Write-Ok "Task '$TaskName' registered — runs silently at every Windows logon."
+
+# 5. Start the bridge right now
+Write-Step 'Starting the bridge...'
+Start-ScheduledTask -TaskName $TaskName
+Start-Sleep -Seconds 2
+$taskState = (Get-ScheduledTask -TaskName $TaskName).State
+if ($taskState -eq 'Running') { Write-Ok 'Bridge is running now!' }
+else { Write-Host "  Bridge state: '$taskState' — will start on next logon." -ForegroundColor Yellow }
+
+Write-Host ''
+Write-Host '==================================================' -ForegroundColor Green
+Write-Host '  Setup complete! Cash drawer bridge will start   ' -ForegroundColor Green
+Write-Host '  automatically at every Windows login.           ' -ForegroundColor Green
+Write-Host '==================================================' -ForegroundColor Green
+Write-Host ''
+Read-Host 'Press Enter to close'
+""";
+
+  downloadTextFile('cash_drawer_bridge.py', bridgeScript);
+  downloadTextFile('install_bridge_service.ps1', installerScript);
+}
+
+// ---------------------------------------------------------------------------
 
 class _BridgeSetupCard extends StatelessWidget {
   final TextEditingController bridgePortController;
@@ -509,7 +714,7 @@ class _BridgeSetupCard extends StatelessWidget {
         ),
         const SizedBox(height: 16),
 
-        // Instructions
+        // Instructions + Download button
         Card(
           color: Colors.amber.shade50,
           child: Padding(
@@ -525,34 +730,74 @@ class _BridgeSetupCard extends StatelessWidget {
                       size: 20,
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      'Automatic Setup — Run Once on the POS Computer',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.amber.shade900,
-                        fontSize: 14,
+                    Expanded(
+                      child: Text(
+                        'Automatic Setup — Run Once on the POS Computer',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.amber.shade900,
+                          fontSize: 14,
+                        ),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'After setup the bridge starts silently at every Windows login — no manual steps ever again.',
+                  'After setup the bridge starts silently at every Windows login — completely hands-off.',
                   style: TextStyle(fontSize: 12, color: Colors.amber.shade800),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
+
+                // ── Download button ──────────────────────────────────────
+                SizedBox(
+                  width: double.infinity,
+                  child: Builder(
+                    builder: (ctx) => ElevatedButton.icon(
+                      icon: const Icon(Icons.download_rounded),
+                      label: const Text(
+                        'Download Setup Files',
+                        style: TextStyle(fontSize: 15),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: Colors.amber.shade700,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      onPressed: () {
+                        final port =
+                            int.tryParse(bridgePortController.text) ?? 8765;
+                        _downloadBridgeSetupFiles(port);
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              '2 files downloaded — right-click the .ps1 file and choose "Run with PowerShell".',
+                            ),
+                            duration: Duration(seconds: 5),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
                 _Step(
                   n: '1',
                   text:
-                      'Copy the tools\\ folder from this project to the POS computer.\n'
-                      'It contains install_bridge_service.ps1 and cash_drawer_bridge.py.',
+                      'Click "Download Setup Files" above.\n'
+                      'Two files will save to your Downloads folder: '
+                      'install_bridge_service.ps1 and cash_drawer_bridge.py.',
                 ),
                 _Step(
                   n: '2',
                   text:
                       'Right-click install_bridge_service.ps1 → "Run with PowerShell".\n'
-                      'The script automatically installs Python dependencies and registers '
-                      'the bridge as a Windows startup task. Done!',
+                      'It auto-installs Python dependencies and registers the bridge as a '
+                      'Windows startup task. Done — no further steps ever needed!',
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -565,7 +810,7 @@ class _BridgeSetupCard extends StatelessWidget {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Only needs to be done once. To remove it later, run uninstall_bridge_service.ps1 the same way.',
+                        'Only needs to be done once. To remove later, download and run uninstall_bridge_service.ps1.',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.amber.shade900,
