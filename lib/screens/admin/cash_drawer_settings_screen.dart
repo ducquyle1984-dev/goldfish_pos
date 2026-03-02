@@ -726,7 +726,7 @@ class _H(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     log.info('Cash Drawer Bridge starting - port %d', PORT)
     try:
-        HTTPServer(('localhost', PORT), _H).serve_forever()
+        HTTPServer(('127.0.0.1', PORT), _H).serve_forever()
     except OSError as e:
         log.critical('Cannot bind port %d: %s', PORT, e); sys.exit(1)
     except KeyboardInterrupt:
@@ -765,11 +765,11 @@ Start-Process -FilePath 'cmd.exe' -ArgumentList "/c \`"\$LauncherDest\`"" -Windo
 Start-Sleep -Seconds 5
 
 # 8. Verify it actually responds
-Write-Step "Testing http://localhost:\$Port/status ..."
+Write-Step "Testing http://127.0.0.1:\$Port/status ..."
 \$ok = \$false
 for (\$i = 0; \$i -lt 8; \$i++) {
     try {
-        \$r = Invoke-WebRequest -Uri "http://localhost:\$Port/status" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        \$r = Invoke-WebRequest -Uri "http://127.0.0.1:\$Port/status" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
         if (\$r.StatusCode -eq 200) { \$ok = \$true; break }
     } catch {}
     Write-Host "    attempt \$(\$i+1)/8 - waiting..."
@@ -777,7 +777,7 @@ for (\$i = 0; \$i -lt 8; \$i++) {
 }
 
 if (\$ok) {
-    Write-Ok "Bridge is live at http://localhost:\$Port/status"
+    Write-Ok "Bridge is live at http://127.0.0.1:\$Port/status"
     Write-Host ''
     Write-Host '  SUCCESS! Go back to the POS app and click Refresh.' -ForegroundColor Green
 } else {
