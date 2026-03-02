@@ -628,7 +628,7 @@ if (-not (Test-Path \$pipExe)) { \$pipExe = 'pip' }
 & \$pipExe install --upgrade pywin32 2>&1 | Out-Host
 Write-Ok 'pywin32 installed.'
 
-# 3. pywin32 post-install  (registers DLLs — critical step)
+# 3. pywin32 post-install  (registers DLLs - critical step)
 Write-Step 'Registering pywin32 DLLs...'
 \$postInstall = Join-Path (Split-Path \$pythonExe) 'Scripts\\pywin32_postinstall.py'
 if (Test-Path \$postInstall) {
@@ -645,7 +645,7 @@ if ("\$check".Trim() -ne 'ok') {
 }
 Write-Ok 'pywin32 verified.'
 
-# 4. Install files (bridge script is embedded — no external file needed)
+# 4. Install files (bridge script is embedded - no external file needed)
 Write-Step "Installing to \$AppDir..."
 New-Item -ItemType Directory -Force -Path \$AppDir | Out-Null
 \$bridgeScript = @'
@@ -733,7 +733,7 @@ if __name__ == '__main__':
 '@
 [System.IO.File]::WriteAllText(\$ScriptDest, \$bridgeScript, [System.Text.Encoding]::UTF8)
 
-# Write a .bat launcher — more reliable than calling pythonw.exe directly from Task Scheduler
+# Write a .bat launcher - more reliable than calling pythonw.exe directly from Task Scheduler
 Set-Content \$LauncherDest "@echo off\`r\`n\$pythonExe \"\$ScriptDest\" >> \"\$LogDest\" 2>&1" -Encoding ascii
 Write-Ok 'Files installed.'
 
@@ -768,7 +768,7 @@ for (\$i = 0; \$i -lt 8; \$i++) {
         \$r = Invoke-WebRequest -Uri "http://localhost:\$Port/status" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
         if (\$r.StatusCode -eq 200) { \$ok = \$true; break }
     } catch {}
-    Write-Host "    attempt \$(\$i+1)/8 — waiting..."
+    Write-Host "    attempt \$(\$i+1)/8 - waiting..."
     Start-Sleep -Seconds 2
 }
 
@@ -783,9 +783,9 @@ if (\$ok) {
     if (Test-Path \$LogDest) {
         \$lines = Get-Content \$LogDest
         if (\$lines) { \$lines | Select-Object -Last 40 | ForEach-Object { Write-Host "    \$_" } }
-        else { Write-Host '    (log file is empty — Python may have crashed before writing anything)' }
+        else { Write-Host '    (log file is empty - Python may have crashed before writing anything)' }
     } else {
-        Write-Host '    (no log file — launcher bat may have failed to start)'
+        Write-Host '    (no log file - launcher bat may have failed to start)'
         Write-Host "    Launcher path: \$LauncherDest"
         Write-Host "    Python path:   \$pythonExe"
     }
