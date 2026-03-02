@@ -43,12 +43,24 @@ class MyApp extends StatelessWidget {
         // tested with just a hot reload.
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
-      home: const AuthenticationWrapper(),
+      home: _resolveHome(),
       routes: {
         '/kiosk': (_) => const KioskCheckInScreen(),
         '/book': (_) => const CustomerBookingScreen(),
       },
     );
+  }
+
+  Widget _resolveHome() {
+    // On web, check if the URL path is /book — if so, go straight to the
+    // customer booking page without requiring login.
+    if (kIsWeb) {
+      final path = Uri.base.path;
+      if (path == '/book' || path.startsWith('/book/')) {
+        return const CustomerBookingScreen();
+      }
+    }
+    return const AuthenticationWrapper();
   }
 }
 
