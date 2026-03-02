@@ -1,8 +1,10 @@
 ﻿import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:goldfish_pos/models/cash_drawer_settings_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/services/cash_drawer_service.dart';
 import 'package:goldfish_pos/utils/file_downloader.dart';
+import 'package:goldfish_pos/utils/url_opener.dart';
 import 'package:http/http.dart' as http;
 
 class CashDrawerSettingsScreen extends StatefulWidget {
@@ -24,6 +26,7 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
   bool _testing = false;
   // null = not checked yet, true = running, false = not running
   bool? _bridgeOnline;
+  String? _bridgeError; // last error from status check
   bool _checkingBridge = false;
 
   @override
@@ -54,14 +57,28 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
 
   Future<void> _checkBridgeStatus() async {
     if (_checkingBridge) return;
-    setState(() => _checkingBridge = true);
+    setState(() {
+      _checkingBridge = true;
+      _bridgeError = null;
+    });
     try {
       final res = await http
           .get(Uri.parse('http://localhost:${_settings.bridgePort}/status'))
-          .timeout(const Duration(seconds: 3));
-      if (mounted) setState(() => _bridgeOnline = res.statusCode == 200);
-    } catch (_) {
-      if (mounted) setState(() => _bridgeOnline = false);
+          .timeout(const Duration(seconds: 4));
+      if (mounted) {
+        setState(() {
+          _bridgeOnline = res.statusCode == 200;
+          if (res.statusCode != 200)
+            _bridgeError = 'Server returned status ${res.statusCode}';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _bridgeOnline = false;
+          _bridgeError = e.toString();
+        });
+      }
     } finally {
       if (mounted) setState(() => _checkingBridge = false);
     }
@@ -143,6 +160,113 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
     );
   }
 
+  /// Returns widgets shown inside the Helper App card when the bridge is offline.
+  List<Widget> _offlineTroubleshoot(BuildContext context) {
+    final statusUrl = 'http://localhost:${_settings.bridgePort}/status';
+    return [
+      const SizedBox(height: 12),
+      Container(
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          border: Border.all(color: Colors.red.shade200),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.red.shade700,
+                  size: 18,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Helper app not detected',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red.shade800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            if (_bridgeError != null) ...[
+              Text(
+                'Error: $_bridgeError',
+                style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+              ),
+              const SizedBox(height: 8),
+            ],
+
+            // Step 1: verify in browser
+            const Text(
+              'Step 1 — Verify the helper app is running:',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: SelectableText(
+                    statusUrl,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                      color: Colors.blue,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  icon: const Icon(Icons.open_in_new, size: 14),
+                  label: const Text('Open', style: TextStyle(fontSize: 12)),
+                  onPressed: () => openUrl(statusUrl),
+                ),
+              ],
+            ),
+            const Text(
+              'Click "Open" — if you see  {"ok": true}  the helper app IS running.\n'
+              'If you get "site can\'t be reached" it is not running.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 10),
+
+            // Step 2: if running but still offline here
+            const Text(
+              'Step 2 — If you see {"ok": true} but the status still shows Offline:',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Your browser may be blocking the automatic check. '
+              'This is fine — the open-drawer command will still work. '
+              'Just click "Test — Open Drawer Now" to confirm.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 10),
+
+            // Step 3: if not running
+            const Text(
+              'Step 3 — If the page doesn\'t load, re-run the installer:',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              '1. Open Windows Task Manager → Details tab.\n'
+              '2. Look for  pythonw.exe  in the list.\n'
+              '3. If not there, click "Download Installer" above and run it again.\n'
+              '4. Check the log at:  %AppData%\\GoldfishPOS\\bridge.log',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -160,10 +284,12 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
               child: Center(
-                  child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2))),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
             )
           else
             TextButton(
@@ -178,10 +304,13 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
           // ── Enable ──────────────────────────────────────────────────────
           Card(
             child: SwitchListTile(
-              title: const Text('Enable Cash Drawer',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
+              title: const Text(
+                'Enable Cash Drawer',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               subtitle: const Text(
-                  'Opens the cash drawer automatically or on demand.'),
+                'Opens the cash drawer automatically or on demand.',
+              ),
               value: _settings.enabled,
               onChanged: (v) =>
                   setState(() => _settings = _settings.copyWith(enabled: v)),
@@ -196,10 +325,12 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
               child: SwitchListTile(
                 title: const Text('Open on Cash Payment'),
                 subtitle: const Text(
-                    'Drawer opens automatically when a cash transaction is completed.'),
+                  'Drawer opens automatically when a cash transaction is completed.',
+                ),
                 value: _settings.openOnCashPayment,
                 onChanged: (v) => setState(
-                    () => _settings = _settings.copyWith(openOnCashPayment: v)),
+                  () => _settings = _settings.copyWith(openOnCashPayment: v),
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -211,9 +342,13 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Receipt Printer Name',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 15)),
+                    const Text(
+                      'Receipt Printer Name',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     const Text(
                       'Leave blank to use the Windows default printer. '
@@ -224,7 +359,8 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                     TextField(
                       controller: _printerNameController,
                       decoration: const InputDecoration(
-                        hintText: 'e.g.  EPSON TM-T20III  (leave blank for default)',
+                        hintText:
+                            'e.g.  EPSON TM-T20III  (leave blank for default)',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.print_outlined),
                       ),
@@ -244,9 +380,13 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                   children: [
                     Row(
                       children: [
-                        const Text('Helper App',
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 15)),
+                        const Text(
+                          'Helper App',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
                         const Spacer(),
                         _BridgeStatusBadge(
                           online: _bridgeOnline,
@@ -256,7 +396,9 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                         IconButton(
                           tooltip: 'Refresh status',
                           icon: const Icon(Icons.refresh, size: 20),
-                          onPressed: _checkingBridge ? null : _checkBridgeStatus,
+                          onPressed: _checkingBridge
+                              ? null
+                              : _checkBridgeStatus,
                         ),
                       ],
                     ),
@@ -274,14 +416,17 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                       width: double.infinity,
                       child: ElevatedButton.icon(
                         icon: const Icon(Icons.download_rounded),
-                        label: const Text('Download Installer',
-                            style: TextStyle(fontSize: 15)),
+                        label: const Text(
+                          'Download Installer',
+                          style: TextStyle(fontSize: 15),
+                        ),
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           backgroundColor: primary,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
                         onPressed: () {
                           _downloadInstaller(_settings.bridgePort);
@@ -315,6 +460,10 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                       text:
                           'Click the refresh icon (↻) above to confirm the status shows Online.',
                     ),
+
+                    // ── Offline troubleshooter ──────────────────────────
+                    if (_bridgeOnline == false)
+                      ..._offlineTroubleshoot(context),
                   ],
                 ),
               ),
@@ -329,7 +478,8 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                     ? const SizedBox(
                         width: 18,
                         height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2))
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : const Icon(Icons.sensors),
                 label: Text(_testing ? 'Testing…' : 'Test — Open Drawer Now'),
                 style: OutlinedButton.styleFrom(
@@ -356,24 +506,40 @@ class _BridgeStatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (checking) {
-      return const Row(children: [
-        SizedBox(
-            width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-        SizedBox(width: 6),
-        Text('Checking…', style: TextStyle(fontSize: 13)),
-      ]);
+      return const Row(
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 6),
+          Text('Checking…', style: TextStyle(fontSize: 13)),
+        ],
+      );
     }
     if (online == null) {
-      return const Text('—', style: TextStyle(color: Colors.grey, fontSize: 13));
+      return const Text(
+        '—',
+        style: TextStyle(color: Colors.grey, fontSize: 13),
+      );
     }
     final color = online! ? Colors.green : Colors.red;
     final label = online! ? 'Online' : 'Offline';
-    return Row(children: [
-      Icon(Icons.circle, color: color, size: 10),
-      const SizedBox(width: 5),
-      Text(label,
-          style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
-    ]);
+    return Row(
+      children: [
+        Icon(Icons.circle, color: color, size: 10),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -394,15 +560,22 @@ class _InstallStep extends StatelessWidget {
           CircleAvatar(
             radius: 12,
             backgroundColor: Theme.of(context).colorScheme.primary,
-            child: Text(number,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold)),
+            child: Text(
+              number,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
-              child: Text(text, style: const TextStyle(fontSize: 13, height: 1.5))),
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 13, height: 1.5),
+            ),
+          ),
         ],
       ),
     );
@@ -490,7 +663,8 @@ Write-Host ''
 Read-Host 'Press Enter to close'
 """;
 
-  final bridge = '''#!/usr/bin/env python3
+  final bridge =
+      '''#!/usr/bin/env python3
 """
 Goldfish POS Cash Drawer Bridge
 Installed automatically by install_bridge_service.ps1
