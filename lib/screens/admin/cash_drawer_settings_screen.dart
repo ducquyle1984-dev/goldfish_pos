@@ -591,7 +591,7 @@ void _downloadInstaller(int port) {
   final installer =
       """
 #Requires -Version 5.1
-\$ErrorActionPreference = 'Stop'
+\$ErrorActionPreference = 'Continue'
 \$TaskName   = 'GoldfishPOS_CashDrawerBridge'
 \$AppDir     = "\$env:APPDATA\\GoldfishPOS"
 \$Port       = $port
@@ -625,7 +625,9 @@ Write-Ok "Python: \$pythonExe"
 Write-Step 'Installing pywin32...'
 \$pipExe = Join-Path (Split-Path \$pythonExe) 'Scripts\\pip.exe'
 if (-not (Test-Path \$pipExe)) { \$pipExe = 'pip' }
-& \$pipExe install --upgrade pywin32 2>&1 | Out-Host
+\$pipOut = & \$pipExe install --upgrade pywin32 2>&1
+\$pipOut | ForEach-Object { Write-Host "    \$_" }
+if (\$LASTEXITCODE -ne 0) { Write-Err "pip failed (exit \$LASTEXITCODE). Try running as Administrator." }
 Write-Ok 'pywin32 installed.'
 
 # 3. pywin32 post-install  (registers DLLs - critical step)
