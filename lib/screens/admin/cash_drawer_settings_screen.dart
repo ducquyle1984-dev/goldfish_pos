@@ -120,8 +120,12 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
       case CashDrawerResult.success:
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Cash drawer opened!'),
+            content: Text(
+              'Open command sent to printer. '
+              'If the drawer did not open, check that the cash drawer cable is plugged into the receipt printer.',
+            ),
             backgroundColor: Colors.green,
+            duration: Duration(seconds: 6),
           ),
         );
       case CashDrawerResult.disabled:
