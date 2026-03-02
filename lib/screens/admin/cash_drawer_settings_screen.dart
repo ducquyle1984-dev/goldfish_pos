@@ -64,8 +64,7 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
   Future<void> _save() async {
     final host = _hostController.text.trim();
     final port = int.tryParse(_portController.text.trim()) ?? 9100;
-    final bridgePort =
-        int.tryParse(_bridgePortController.text.trim()) ?? 8765;
+    final bridgePort = int.tryParse(_bridgePortController.text.trim()) ?? 8765;
     final printerName = _printerNameController.text.trim();
 
     if (_settings.enabled &&
@@ -174,20 +173,26 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
                       child: SwitchListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Enable Cash Drawer',
-                            style: TextStyle(fontWeight: FontWeight.w600)),
+                        title: const Text(
+                          'Enable Cash Drawer',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
                         subtitle: const Text(
-                            'Allow the POS to open the cash drawer.'),
+                          'Allow the POS to open the cash drawer.',
+                        ),
                         value: _settings.enabled,
-                        onChanged: (val) => setState(() =>
-                            _settings = _settings.copyWith(enabled: val)),
-                        secondary: Icon(Icons.point_of_sale,
-                            color: _settings.enabled
-                                ? Colors.green
-                                : Colors.grey),
+                        onChanged: (val) => setState(
+                          () => _settings = _settings.copyWith(enabled: val),
+                        ),
+                        secondary: Icon(
+                          Icons.point_of_sale,
+                          color: _settings.enabled ? Colors.green : Colors.grey,
+                        ),
                       ),
                     ),
                   ),
@@ -200,9 +205,13 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Connection Method',
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 15)),
+                          const Text(
+                            'Connection Method',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
                           const SizedBox(height: 12),
                           _ModeOption(
                             selected: isBridge,
@@ -212,10 +221,12 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                             description:
                                 'Run a small Python script on this PC. Works with '
                                 'USB printers and works from the web browser.',
-                            onTap: () => setState(() => _settings =
-                                _settings.copyWith(
-                                    connectionMode:
-                                        CashDrawerConnectionMode.localBridge)),
+                            onTap: () => setState(
+                              () => _settings = _settings.copyWith(
+                                connectionMode:
+                                    CashDrawerConnectionMode.localBridge,
+                              ),
+                            ),
                           ),
                           const SizedBox(height: 8),
                           _ModeOption(
@@ -226,10 +237,12 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                             description:
                                 'Sends commands directly to a network printer over TCP. '
                                 'Does NOT work from the web browser.',
-                            onTap: () => setState(() => _settings =
-                                _settings.copyWith(
-                                    connectionMode:
-                                        CashDrawerConnectionMode.tcpNetwork)),
+                            onTap: () => setState(
+                              () => _settings = _settings.copyWith(
+                                connectionMode:
+                                    CashDrawerConnectionMode.tcpNetwork,
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -250,9 +263,13 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Network Printer Settings',
-                                style: TextStyle(
-                                    fontWeight: FontWeight.bold, fontSize: 15)),
+                            const Text(
+                              'Network Printer Settings',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
                             const SizedBox(height: 16),
                             TextField(
                               controller: _hostController,
@@ -268,7 +285,7 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                               controller: _portController,
                               keyboardType: TextInputType.number,
                               inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly
+                                FilteringTextInputFormatter.digitsOnly,
                               ],
                               decoration: const InputDecoration(
                                 labelText: 'TCP Port',
@@ -290,16 +307,24 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
                       child: SwitchListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Auto-open on Cash Payment',
-                            style: TextStyle(fontWeight: FontWeight.w600)),
+                        title: const Text(
+                          'Auto-open on Cash Payment',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
                         subtitle: const Text(
-                            'Automatically opens the drawer when a cash payment is processed.'),
+                          'Automatically opens the drawer when a cash payment is processed.',
+                        ),
                         value: _settings.openOnCashPayment,
-                        onChanged: (val) => setState(() => _settings =
-                            _settings.copyWith(openOnCashPayment: val)),
+                        onChanged: (val) => setState(
+                          () => _settings = _settings.copyWith(
+                            openOnCashPayment: val,
+                          ),
+                        ),
                         secondary: const Icon(Icons.autorenew),
                       ),
                     ),
@@ -316,15 +341,17 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                                   width: 16,
                                   height: 16,
                                   child: CircularProgressIndicator(
-                                      strokeWidth: 2))
+                                    strokeWidth: 2,
+                                  ),
+                                )
                               : const Icon(Icons.science_outlined),
-                          label:
-                              Text(_testing ? 'Testing...' : 'Test Open Drawer'),
-                          onPressed:
-                              (_saving || _testing) ? null : _testDrawer,
+                          label: Text(
+                            _testing ? 'Testing...' : 'Test Open Drawer',
+                          ),
+                          onPressed: (_saving || _testing) ? null : _testDrawer,
                           style: OutlinedButton.styleFrom(
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 14)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -335,14 +362,16 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                                   width: 16,
                                   height: 16,
                                   child: CircularProgressIndicator(
-                                      strokeWidth: 2, color: Colors.white))
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
                               : const Icon(Icons.save_outlined),
-                          label:
-                              Text(_saving ? 'Saving...' : 'Save Settings'),
+                          label: Text(_saving ? 'Saving...' : 'Save Settings'),
                           onPressed: (_saving || _testing) ? null : _save,
                           style: FilledButton.styleFrom(
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 14)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
                         ),
                       ),
                     ],
@@ -397,15 +426,19 @@ class _ModeOption extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: color,
-                          fontSize: 13)),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: color,
+                      fontSize: 13,
+                    ),
+                  ),
                   const SizedBox(height: 2),
-                  Text(description,
-                      style: TextStyle(
-                          fontSize: 12, color: Colors.grey.shade600)),
+                  Text(
+                    description,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
                 ],
               ),
             ),
@@ -440,9 +473,10 @@ class _BridgeSetupCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Bridge Settings',
-                    style:
-                        TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                const Text(
+                  'Bridge Settings',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: bridgePortController,
@@ -485,52 +519,57 @@ class _BridgeSetupCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.construction,
-                        color: Colors.amber.shade800, size: 20),
+                    Icon(
+                      Icons.auto_awesome,
+                      color: Colors.amber.shade800,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
-                    Text('One-time Setup on the POS Computer',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.amber.shade900,
-                            fontSize: 14)),
+                    Text(
+                      'Automatic Setup — Run Once on the POS Computer',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.amber.shade900,
+                        fontSize: 14,
+                      ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 4),
+                Text(
+                  'After setup the bridge starts silently at every Windows login — no manual steps ever again.',
+                  style: TextStyle(fontSize: 12, color: Colors.amber.shade800),
+                ),
+                const SizedBox(height: 14),
                 _Step(
-                    n: '1',
-                    text:
-                        'Install Python 3 from python.org  (check "Add to PATH" during install).'),
+                  n: '1',
+                  text:
+                      'Copy the tools\\ folder from this project to the POS computer.\n'
+                      'It contains install_bridge_service.ps1 and cash_drawer_bridge.py.',
+                ),
                 _Step(
-                    n: '2',
-                    text:
-                        'Open Command Prompt and run:\n    pip install pywin32'),
-                _Step(
-                    n: '3',
-                    text:
-                        'Copy the script below and save it as cash_drawer_bridge.py anywhere on the PC, '
-                        'e.g.  C:\\POS\\cash_drawer_bridge.py'),
-                _Step(
-                    n: '4',
-                    text:
-                        'Every time you start the POS, run the bridge in Command Prompt:\n'
-                        '    python C:\\POS\\cash_drawer_bridge.py\n'
-                        'Keep the window open while the POS is in use.'),
-                _Step(
-                    n: '5',
-                    text:
-                        'Optional — to start automatically at Windows login, create a shortcut '
-                        'to the script and put it in the Startup folder  (Win+R → shell:startup).'),
+                  n: '2',
+                  text:
+                      'Right-click install_bridge_service.ps1 → "Run with PowerShell".\n'
+                      'The script automatically installs Python dependencies and registers '
+                      'the bridge as a Windows startup task. Done!',
+                ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Icon(Icons.info_outline,
-                        color: Colors.amber.shade800, size: 14),
+                    Icon(
+                      Icons.info_outline,
+                      color: Colors.amber.shade800,
+                      size: 14,
+                    ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'The bridge only needs to run on the PC that is physically connected to the printer via USB.',
+                        'Only needs to be done once. To remove it later, run uninstall_bridge_service.ps1 the same way.',
                         style: TextStyle(
-                            fontSize: 12, color: Colors.amber.shade900),
+                          fontSize: 12,
+                          color: Colors.amber.shade900,
+                        ),
                       ),
                     ),
                   ],
@@ -542,8 +581,7 @@ class _BridgeSetupCard extends StatelessWidget {
         const SizedBox(height: 16),
 
         // Script
-        _ScriptCard(
-            port: int.tryParse(bridgePortController.text) ?? 8765),
+        _ScriptCard(port: int.tryParse(bridgePortController.text) ?? 8765),
       ],
     );
   }
@@ -564,16 +602,21 @@ class _Step extends StatelessWidget {
           CircleAvatar(
             radius: 11,
             backgroundColor: Colors.amber.shade700,
-            child: Text(n,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold)),
+            child: Text(
+              n,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(text,
-                style: const TextStyle(fontSize: 13, height: 1.4)),
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 13, height: 1.4),
+            ),
           ),
         ],
       ),
@@ -585,7 +628,8 @@ class _ScriptCard extends StatelessWidget {
   final int port;
   const _ScriptCard({required this.port});
 
-  String get _script => '''#!/usr/bin/env python3
+  String get _script =>
+      '''#!/usr/bin/env python3
 """
 cash_drawer_bridge.py
 Receives HTTP requests from Goldfish POS and opens the cash drawer by
@@ -684,9 +728,10 @@ if __name__ == "__main__":
                 const Icon(Icons.code, size: 18),
                 const SizedBox(width: 8),
                 const Expanded(
-                  child: Text('cash_drawer_bridge.py',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 14)),
+                  child: Text(
+                    'cash_drawer_bridge.py',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
                 ),
                 TextButton.icon(
                   icon: const Icon(Icons.copy, size: 16),
@@ -709,7 +754,10 @@ if __name__ == "__main__":
               child: SelectableText(
                 _script,
                 style: const TextStyle(
-                    fontFamily: 'monospace', fontSize: 11.5, height: 1.5),
+                  fontFamily: 'monospace',
+                  fontSize: 11.5,
+                  height: 1.5,
+                ),
               ),
             ),
           ],
