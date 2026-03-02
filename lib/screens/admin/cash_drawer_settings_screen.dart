@@ -754,33 +754,43 @@ Unregister-ScheduledTask -TaskName \$TaskName -Confirm:\$false -ErrorAction Sile
 Register-ScheduledTask -TaskName \$TaskName -Action \$action -Trigger \$trigger -Settings \$settings -Principal \$principal -Force | Out-Null
 Write-Ok 'Startup task registered.'
 
-# 7. Start the bridge NOW directly (not via task, to capture any startup errors)
+# 7. Start the bridge NOW via the launcher bat (handles stdout+stderr redirect correctly)
 Write-Step 'Starting bridge...'
-Start-Process -FilePath \$pythonExe -ArgumentList "\`"\$ScriptDest\`"" -WindowStyle Hidden -RedirectStandardOutput \$LogDest -RedirectStandardError \$LogDest
-Start-Sleep -Seconds 3
+if (Test-Path \$LogDest) { Clear-Content \$LogDest }
+Start-Process -FilePath 'cmd.exe' -ArgumentList "/c \`"\$LauncherDest\`"" -WindowStyle Hidden
+Start-Sleep -Seconds 5
 
 # 8. Verify it actually responds
 Write-Step "Testing http://localhost:\$Port/status ..."
 \$ok = \$false
-for (\$i = 0; \$i -lt 5; \$i++) {
+for (\$i = 0; \$i -lt 8; \$i++) {
     try {
         \$r = Invoke-WebRequest -Uri "http://localhost:\$Port/status" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
         if (\$r.StatusCode -eq 200) { \$ok = \$true; break }
     } catch {}
-    Start-Sleep -Seconds 1
+    Write-Host "    attempt \$(\$i+1)/8 — waiting..."
+    Start-Sleep -Seconds 2
 }
 
 if (\$ok) {
-    Write-Ok 'Bridge is responding on http://localhost:\$Port/status'
+    Write-Ok "Bridge is live at http://localhost:\$Port/status"
     Write-Host ''
     Write-Host '  SUCCESS! Go back to the POS app and click Refresh.' -ForegroundColor Green
 } else {
-    Write-Warn "Bridge did not respond. Showing log:"
     Write-Host ''
-    if (Test-Path \$LogDest) { Get-Content \$LogDest | Select-Object -Last 30 | ForEach-Object { Write-Host "    \$_" } }
-    else { Write-Host "    (no log file found)" }
+    Write-Warn 'Bridge did not respond. Log output:'
     Write-Host ''
-    Write-Warn 'Try running  run_bridge_debug.bat  to see the error in a visible window.'
+    if (Test-Path \$LogDest) {
+        \$lines = Get-Content \$LogDest
+        if (\$lines) { \$lines | Select-Object -Last 40 | ForEach-Object { Write-Host "    \$_" } }
+        else { Write-Host '    (log file is empty — Python may have crashed before writing anything)' }
+    } else {
+        Write-Host '    (no log file — launcher bat may have failed to start)'
+        Write-Host "    Launcher path: \$LauncherDest"
+        Write-Host "    Python path:   \$pythonExe"
+    }
+    Write-Host ''
+    Write-Warn 'To see the error live: double-click  run_bridge_debug.bat  in your Downloads folder.'
 }
 
 Write-Host ''
