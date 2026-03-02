@@ -14,15 +14,40 @@ class BookingScreen extends StatefulWidget {
 class _BookingScreenState extends State<BookingScreen> {
   final _repo = PosRepository();
   DateTime _viewDate = DateTime.now();
+  late Stream<List<Appointment>> _appointmentsStream;
 
   DateTime get _normalised =>
       DateTime(_viewDate.year, _viewDate.month, _viewDate.day);
 
-  void _previousDay() =>
-      setState(() => _viewDate = _viewDate.subtract(const Duration(days: 1)));
+  @override
+  void initState() {
+    super.initState();
+    _appointmentsStream = _repo.getAppointmentsForDate(_normalised);
+  }
 
-  void _nextDay() =>
-      setState(() => _viewDate = _viewDate.add(const Duration(days: 1)));
+  void _previousDay() {
+    final newDate = DateTime(
+      _viewDate.year,
+      _viewDate.month,
+      _viewDate.day,
+    ).subtract(const Duration(days: 1));
+    setState(() {
+      _viewDate = newDate;
+      _appointmentsStream = _repo.getAppointmentsForDate(newDate);
+    });
+  }
+
+  void _nextDay() {
+    final newDate = DateTime(
+      _viewDate.year,
+      _viewDate.month,
+      _viewDate.day,
+    ).add(const Duration(days: 1));
+    setState(() {
+      _viewDate = newDate;
+      _appointmentsStream = _repo.getAppointmentsForDate(newDate);
+    });
+  }
 
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
@@ -31,7 +56,13 @@ class _BookingScreenState extends State<BookingScreen> {
       firstDate: DateTime(2020),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
-    if (picked != null) setState(() => _viewDate = picked);
+    if (picked != null) {
+      final newDate = DateTime(picked.year, picked.month, picked.day);
+      setState(() {
+        _viewDate = newDate;
+        _appointmentsStream = _repo.getAppointmentsForDate(newDate);
+      });
+    }
   }
 
   Future<void> _bookNew() async {
@@ -57,8 +88,8 @@ class _BookingScreenState extends State<BookingScreen> {
         ? 'Today — ${DateFormat.MMMMd().format(_viewDate)}'
         : DateFormat.MMMMEEEEd().format(_viewDate);
 
-    return Scaffold(
-      body: Column(
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // ── Date navigator ──────────────────────────────────────────
@@ -115,9 +146,10 @@ class _BookingScreenState extends State<BookingScreen> {
           // ── Appointment list ─────────────────────────────────────────
           Expanded(
             child: StreamBuilder<List<Appointment>>(
-              stream: _repo.getAppointmentsForDate(_normalised),
+              stream: _appointmentsStream,
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
+                if (snapshot.connectionState == ConnectionState.waiting ||
+                    snapshot.connectionState == ConnectionState.none) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
@@ -273,204 +305,210 @@ class _AppointmentCard extends StatelessWidget {
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       clipBehavior: Clip.antiAlias,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Status stripe
-          Container(width: 6, color: appt.statusColor),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Status stripe
+            Container(width: 6, color: appt.statusColor),
 
-          // Content
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      // Time
-                      Text(
-                        '$timeLabel – $endLabel',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-
-                      // Source chip
-                      if (isOnline)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.shade50,
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: Colors.blue.shade200),
-                          ),
-                          child: Text(
-                            'Online',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.blue.shade700,
-                              fontWeight: FontWeight.w600,
-                            ),
+            // Content
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        // Time
+                        Text(
+                          '$timeLabel – $endLabel',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
                           ),
                         ),
+                        const SizedBox(width: 8),
 
-                      // Pending confirmation badge
-                      if (isPending) ...[
-                        const SizedBox(width: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.orange.shade50,
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: Colors.orange.shade300),
-                          ),
-                          child: Text(
-                            'Awaiting Confirmation',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.orange.shade800,
-                              fontWeight: FontWeight.w600,
+                        // Source chip
+                        if (isOnline)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
                             ),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade50,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: Colors.blue.shade200),
+                            ),
+                            child: Text(
+                              'Online',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.blue.shade700,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+
+                        // Pending confirmation badge
+                        if (isPending) ...[
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade50,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: Colors.orange.shade300),
+                            ),
+                            child: Text(
+                              'Awaiting Confirmation',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.orange.shade800,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+
+                        const Spacer(),
+
+                        // Status label
+                        Text(
+                          appt.statusLabel,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: appt.statusColor,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
-
-                      const Spacer(),
-
-                      // Status label
-                      Text(
-                        appt.statusLabel,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: appt.statusColor,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    appt.customerName,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
                     ),
-                  ),
-                  Text(
-                    appt.customerPhone,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.spa_outlined,
-                        size: 13,
-                        color: Colors.grey.shade500,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        appt.serviceName,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Icon(
-                        Icons.timer_outlined,
-                        size: 13,
-                        color: Colors.grey.shade500,
-                      ),
-                      const SizedBox(width: 2),
-                      Text(
-                        '${appt.durationMinutes} min',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (appt.notes != null && appt.notes!.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
-                      appt.notes!,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade500,
-                        fontStyle: FontStyle.italic,
+                      appt.customerName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
                       ),
                     ),
+                    Text(
+                      appt.customerPhone,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.spa_outlined,
+                          size: 13,
+                          color: Colors.grey.shade500,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          appt.serviceName,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          Icons.timer_outlined,
+                          size: 13,
+                          color: Colors.grey.shade500,
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${appt.durationMinutes} min',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (appt.notes != null && appt.notes!.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        appt.notes!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade500,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
                   ],
+                ),
+              ),
+            ),
+
+            // Action buttons
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (isPending) ...[
+                    _ActionBtn(
+                      icon: Icons.check_circle_outline,
+                      label: 'Confirm',
+                      color: Colors.teal,
+                      onTap: () =>
+                          _setStatus(context, AppointmentStatus.confirmed),
+                    ),
+                    const SizedBox(height: 4),
+                  ],
+                  if (appt.status == AppointmentStatus.confirmed) ...[
+                    _ActionBtn(
+                      icon: Icons.done_all,
+                      label: 'Done',
+                      color: Colors.green,
+                      onTap: () =>
+                          _setStatus(context, AppointmentStatus.completed),
+                    ),
+                    const SizedBox(height: 4),
+                    _ActionBtn(
+                      icon: Icons.person_off_outlined,
+                      label: 'No Show',
+                      color: Colors.orange,
+                      onTap: () =>
+                          _setStatus(context, AppointmentStatus.noShow),
+                    ),
+                    const SizedBox(height: 4),
+                  ],
+                  if (appt.status != AppointmentStatus.cancelled &&
+                      appt.status != AppointmentStatus.completed) ...[
+                    _ActionBtn(
+                      icon: Icons.cancel_outlined,
+                      label: 'Cancel',
+                      color: Colors.red,
+                      onTap: () =>
+                          _setStatus(context, AppointmentStatus.cancelled),
+                    ),
+                    const SizedBox(height: 4),
+                  ],
+                  _ActionBtn(
+                    icon: Icons.delete_outline,
+                    label: 'Delete',
+                    color: Colors.grey,
+                    onTap: () => _delete(context),
+                  ),
                 ],
               ),
             ),
-          ),
-
-          // Action buttons
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (isPending) ...[
-                  _ActionBtn(
-                    icon: Icons.check_circle_outline,
-                    label: 'Confirm',
-                    color: Colors.teal,
-                    onTap: () =>
-                        _setStatus(context, AppointmentStatus.confirmed),
-                  ),
-                  const SizedBox(height: 4),
-                ],
-                if (appt.status == AppointmentStatus.confirmed) ...[
-                  _ActionBtn(
-                    icon: Icons.done_all,
-                    label: 'Done',
-                    color: Colors.green,
-                    onTap: () =>
-                        _setStatus(context, AppointmentStatus.completed),
-                  ),
-                  const SizedBox(height: 4),
-                  _ActionBtn(
-                    icon: Icons.person_off_outlined,
-                    label: 'No Show',
-                    color: Colors.orange,
-                    onTap: () => _setStatus(context, AppointmentStatus.noShow),
-                  ),
-                  const SizedBox(height: 4),
-                ],
-                if (appt.status != AppointmentStatus.cancelled &&
-                    appt.status != AppointmentStatus.completed) ...[
-                  _ActionBtn(
-                    icon: Icons.cancel_outlined,
-                    label: 'Cancel',
-                    color: Colors.red,
-                    onTap: () =>
-                        _setStatus(context, AppointmentStatus.cancelled),
-                  ),
-                  const SizedBox(height: 4),
-                ],
-                _ActionBtn(
-                  icon: Icons.delete_outline,
-                  label: 'Delete',
-                  color: Colors.grey,
-                  onTap: () => _delete(context),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart' hide Transaction;
+import 'package:flutter/foundation.dart';
 import 'package:goldfish_pos/models/appointment_model.dart';
 import 'package:goldfish_pos/models/booking_settings_model.dart';
 import 'package:goldfish_pos/models/cash_drawer_settings_model.dart';
@@ -645,7 +646,17 @@ class PosRepository {
         .where('scheduledAt', isLessThan: Timestamp.fromDate(end))
         .orderBy('scheduledAt')
         .snapshots()
-        .map((s) => s.docs.map(Appointment.fromFirestore).toList());
+        .map((s) {
+          final results = <Appointment>[];
+          for (final doc in s.docs) {
+            try {
+              results.add(Appointment.fromFirestore(doc));
+            } catch (e) {
+              debugPrint('Skipping malformed appointment doc ${doc.id}: $e');
+            }
+          }
+          return results;
+        });
   }
 
   /// Stream of appointments for a date range (inclusive).

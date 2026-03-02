@@ -104,14 +104,18 @@ class Appointment {
   }
 
   factory Appointment.fromFirestore(DocumentSnapshot doc) {
-    final d = doc.data() as Map<String, dynamic>;
+    final raw = doc.data();
+    if (raw == null) {
+      throw StateError('Appointment document ${doc.id} has no data');
+    }
+    final d = raw as Map<String, dynamic>;
     return Appointment(
       id: doc.id,
       customerName: d['customerName'] ?? '',
       customerPhone: d['customerPhone'] ?? '',
       serviceName: d['serviceName'] ?? '',
       scheduledAt: (d['scheduledAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      durationMinutes: (d['durationMinutes'] ?? 60) as int,
+      durationMinutes: ((d['durationMinutes'] ?? 60) as num).toInt(),
       status: AppointmentStatus.values.firstWhere(
         (s) => s.name == d['status'],
         orElse: () => AppointmentStatus.confirmed,

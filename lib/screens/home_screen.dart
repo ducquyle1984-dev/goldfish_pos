@@ -735,15 +735,30 @@ class _HomeScreenState extends State<HomeScreen> {
 // Today's appointments compact bar (non-intrusive, shown on the dashboard).
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _TodayAppointmentsBar extends StatelessWidget {
+class _TodayAppointmentsBar extends StatefulWidget {
   final PosRepository repo;
   const _TodayAppointmentsBar({required this.repo});
 
   @override
-  Widget build(BuildContext context) {
+  State<_TodayAppointmentsBar> createState() => _TodayAppointmentsBarState();
+}
+
+class _TodayAppointmentsBarState extends State<_TodayAppointmentsBar> {
+  late Stream<List<Appointment>> _stream;
+
+  @override
+  void initState() {
+    super.initState();
     final today = DateTime.now();
+    _stream = widget.repo.getAppointmentsForDate(
+      DateTime(today.year, today.month, today.day),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return StreamBuilder<List<Appointment>>(
-      stream: repo.getAppointmentsForDate(today),
+      stream: _stream,
       builder: (context, snapshot) {
         final appts = (snapshot.data ?? [])
             .where(
