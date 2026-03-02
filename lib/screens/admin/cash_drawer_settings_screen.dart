@@ -661,11 +661,12 @@ PORT = $port
 PRINTER_NAME = ""
 KICK_COMMAND = bytes([0x1B, 0x70, 0x00, 0x19, 0xFA])
 
-_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bridge.log')
+# Stdout-only logging: the launcher bat redirects stdout >> bridge.log
+# Do NOT also open bridge.log here -- that causes PermissionError (two handles on same file)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(message)s',
-    handlers=[logging.FileHandler(_log_path, encoding='utf-8'), logging.StreamHandler(sys.stdout)],
+    stream=sys.stdout,
 )
 log = logging.getLogger('bridge')
 
@@ -723,7 +724,7 @@ class _H(BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    log.info('Cash Drawer Bridge starting - port %d - log: %s', PORT, _log_path)
+    log.info('Cash Drawer Bridge starting - port %d', PORT)
     try:
         HTTPServer(('localhost', PORT), _H).serve_forever()
     except OSError as e:
