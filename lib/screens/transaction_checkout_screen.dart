@@ -4,6 +4,7 @@ import 'package:goldfish_pos/models/payment_method_model.dart';
 import 'package:goldfish_pos/models/reward_settings_model.dart';
 import 'package:goldfish_pos/models/transaction_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
+import 'package:goldfish_pos/services/cash_drawer_service.dart';
 import 'package:goldfish_pos/services/helcim_service.dart';
 
 /// Screen for viewing and checking out a pending transaction.
@@ -19,6 +20,7 @@ class TransactionCheckoutScreen extends StatefulWidget {
 
 class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
   final _repo = PosRepository();
+  final _cashDrawer = CashDrawerService();
   late Transaction _transaction;
 
   // Payment fields
@@ -116,6 +118,11 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
 
       _paymentAmountController.clear();
       setState(() => _selectedPaymentMethodId = null);
+
+      // Open cash drawer if this is a cash payment
+      if (_selectedPaymentMethod?.isCash == true) {
+        _openDrawerIfCash();
+      }
 
       if (!wasFullyPaid && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -384,6 +391,52 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.green),
     );
+  }
+
+  /// Fires the cash drawer open command in the background (non-blocking).
+  /// Shows a brief error snack if the connection fails.
+  void _openDrawerIfCash() {
+    _cashDrawer.openDrawerOnCashPayment().then((result) {
+      if (!mounted) return;
+      switch (result) {
+        case CashDrawerResult.success:
+        case CashDrawerResult.disabled:
+          break; // silent — either opened or drawer integration is off
+        case CashDrawerResult.notConfigured:
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Cash drawer is not configured. '
+                'Go to Setup → Admin → Cash Drawer.',
+              ),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        case CashDrawerResult.connectionFailed:
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Could not open cash drawer — check the network connection.',
+              ),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        case CashDrawerResult.bridgeNotRunning:
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Bridge script is not running — start cash_drawer_bridge.py on this PC.',
+              ),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 5),
+            ),
+          );
+        case CashDrawerResult.webNotSupported:
+          break; // silent — bridge mode works on web
+      }
+    });
   }
 
   @override

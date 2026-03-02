@@ -543,104 +543,114 @@ class _ReportsScreenState extends State<ReportsScreen>
                 ],
               ),
               const SizedBox(height: 10),
-              // Quick-range chips
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _QuickChip(
-                      label: 'Today',
-                      isSelected: _activeQuickLabel == 'Today',
-                      onTap: () {
-                        final d = DateTime.now();
-                        _setQuick(d, d, 'Today');
-                      },
+              // Quick-range chips + include voided toggle
+              Row(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _QuickChip(
+                            label: 'Today',
+                            isSelected: _activeQuickLabel == 'Today',
+                            onTap: () {
+                              final d = DateTime.now();
+                              _setQuick(d, d, 'Today');
+                            },
+                          ),
+                          _QuickChip(
+                            label: 'Yesterday',
+                            isSelected: _activeQuickLabel == 'Yesterday',
+                            onTap: () {
+                              final d = DateTime.now().subtract(
+                                const Duration(days: 1),
+                              );
+                              _setQuick(d, d, 'Yesterday');
+                            },
+                          ),
+                          _QuickChip(
+                            label: 'This Week',
+                            isSelected: _activeQuickLabel == 'This Week',
+                            onTap: () {
+                              final now = DateTime.now();
+                              final start = now.subtract(
+                                Duration(days: now.weekday - 1),
+                              );
+                              _setQuick(start, now, 'This Week');
+                            },
+                          ),
+                          _QuickChip(
+                            label: 'This Month',
+                            isSelected: _activeQuickLabel == 'This Month',
+                            onTap: () {
+                              final now = DateTime.now();
+                              _setQuick(
+                                DateTime(now.year, now.month, 1),
+                                now,
+                                'This Month',
+                              );
+                            },
+                          ),
+                          _QuickChip(
+                            label: 'Last Month',
+                            isSelected: _activeQuickLabel == 'Last Month',
+                            onTap: () {
+                              final now = DateTime.now();
+                              final first = DateTime(
+                                now.year,
+                                now.month - 1,
+                                1,
+                              );
+                              final last = DateTime(now.year, now.month, 0);
+                              _setQuick(first, last, 'Last Month');
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                    _QuickChip(
-                      label: 'Yesterday',
-                      isSelected: _activeQuickLabel == 'Yesterday',
-                      onTap: () {
-                        final d = DateTime.now().subtract(
-                          const Duration(days: 1),
-                        );
-                        _setQuick(d, d, 'Yesterday');
-                      },
-                    ),
-                    _QuickChip(
-                      label: 'This Week',
-                      isSelected: _activeQuickLabel == 'This Week',
-                      onTap: () {
-                        final now = DateTime.now();
-                        final start = now.subtract(
-                          Duration(days: now.weekday - 1),
-                        );
-                        _setQuick(start, now, 'This Week');
-                      },
-                    ),
-                    _QuickChip(
-                      label: 'This Month',
-                      isSelected: _activeQuickLabel == 'This Month',
-                      onTap: () {
-                        final now = DateTime.now();
-                        _setQuick(
-                          DateTime(now.year, now.month, 1),
-                          now,
-                          'This Month',
-                        );
-                      },
-                    ),
-                    _QuickChip(
-                      label: 'Last Month',
-                      isSelected: _activeQuickLabel == 'Last Month',
-                      onTap: () {
-                        final now = DateTime.now();
-                        final first = DateTime(now.year, now.month - 1, 1);
-                        final last = DateTime(now.year, now.month, 0);
-                        _setQuick(first, last, 'Last Month');
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 6),
-              // Include voided toggle row
-              GestureDetector(
-                onTap: () {
-                  setState(() => _includeVoided = !_includeVoided);
-                  _load();
-                },
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      height: 24,
-                      width: 44,
-                      child: FittedBox(
-                        fit: BoxFit.fill,
-                        child: Switch(
-                          value: _includeVoided,
-                          onChanged: (v) {
-                            setState(() => _includeVoided = v);
-                            _load();
-                          },
-                          activeColor: Colors.white,
-                          activeTrackColor: Colors.blue.shade300,
-                          inactiveThumbColor: Colors.white70,
-                          inactiveTrackColor: Colors.white24,
+                  ),
+                  const SizedBox(width: 8),
+                  // Include voided toggle (right side)
+                  GestureDetector(
+                    onTap: () {
+                      setState(() => _includeVoided = !_includeVoided);
+                      _load();
+                    },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Voided',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 4),
+                        SizedBox(
+                          height: 24,
+                          width: 40,
+                          child: FittedBox(
+                            fit: BoxFit.fill,
+                            child: Switch(
+                              value: _includeVoided,
+                              onChanged: (v) {
+                                setState(() => _includeVoided = v);
+                                _load();
+                              },
+                              activeColor: Colors.white,
+                              activeTrackColor: Colors.blue.shade300,
+                              inactiveThumbColor: Colors.white70,
+                              inactiveTrackColor: Colors.white24,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 6),
-                    const Text(
-                      'Include Voided',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
               const SizedBox(height: 6),
               TabBar(

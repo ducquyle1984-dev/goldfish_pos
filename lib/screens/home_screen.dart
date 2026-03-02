@@ -8,6 +8,7 @@ import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/screens/admin/admin_dashboard_screen.dart';
 import 'package:goldfish_pos/screens/reports_screen.dart';
 import 'package:goldfish_pos/screens/transaction_create_screen.dart';
+import 'package:goldfish_pos/services/cash_drawer_service.dart';
 import 'package:goldfish_pos/widgets/customer_check_in_dialog.dart';
 
 /// Main dashboard screen with role-based navigation.
@@ -22,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   final user = FirebaseAuth.instance.currentUser;
   final _repo = PosRepository();
+  final _cashDrawer = CashDrawerService();
 
   // For now, we'll assume the user role based on email domain or a custom claim
   // In production, fetch this from Firestore
@@ -223,7 +225,18 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         const Spacer(),
 
-        // ── Action buttons ────────────────────────────────────────────
+        // Open Drawer button
+        OutlinedButton.icon(
+          icon: const Icon(Icons.point_of_sale, size: 18),
+          label: const Text('Open Drawer'),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          ),
+          onPressed: _openDrawer,
+        ),
+        const SizedBox(width: 10),
+
+        // Check In button
         FilledButton.icon(
           icon: const Icon(Icons.person_search_outlined, size: 18),
           label: const Text('Check In'),
@@ -238,9 +251,59 @@ class _HomeScreenState extends State<HomeScreen> {
             }
           },
         ),
-        // ── Add more action buttons here in the future ────────────────
       ],
     );
+  }
+
+  /// Manually open the cash drawer from the home screen.
+  Future<void> _openDrawer() async {
+    final result = await _cashDrawer.openDrawer();
+    if (!mounted) return;
+    switch (result) {
+      case CashDrawerResult.success:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cash drawer opened.'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      case CashDrawerResult.disabled:
+      case CashDrawerResult.notConfigured:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Cash drawer is not configured. '
+              'Go to Setup > Admin > Cash Drawer to set it up.',
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      case CashDrawerResult.connectionFailed:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not open cash drawer - check the network connection.',
+            ),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      case CashDrawerResult.bridgeNotRunning:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Bridge script is not running on this PC. '
+              'Start it with: python cash_drawer_bridge.py',
+            ),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      case CashDrawerResult.webNotSupported:
+        break; // silent — bridge mode works on web
+    }
   }
 
   /// Creates a placeholder pending transaction in Firestore as soon as a
@@ -511,15 +574,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (confirmed == true) {
       await _repo.voidTransaction(tx.id);
     }
-  }
-
-  String _formatTime(DateTime dt) {
-    final now = DateTime.now();
-    final diff = now.difference(dt);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${dt.month}/${dt.day}';
   }
 
   Widget _buildEmployeeGrid() {

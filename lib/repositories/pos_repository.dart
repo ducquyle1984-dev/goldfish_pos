@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart' hide Transaction;
+import 'package:goldfish_pos/models/cash_drawer_settings_model.dart';
 import 'package:goldfish_pos/models/item_category_model.dart';
 import 'package:goldfish_pos/models/item_model.dart';
 import 'package:goldfish_pos/models/employee_model.dart';
@@ -571,6 +572,32 @@ class PosRepository {
       });
     } catch (e) {
       throw Exception('Failed to adjust customer points: $e');
+    }
+  }
+
+  // ==================== Cash Drawer Settings ====================
+
+  Future<CashDrawerSettings> getCashDrawerSettings() async {
+    try {
+      final doc = await _firestore
+          .collection('settings')
+          .doc('cashDrawer')
+          .get();
+      if (doc.exists) return CashDrawerSettings.fromFirestore(doc);
+      return const CashDrawerSettings();
+    } catch (e) {
+      throw Exception('Failed to get cash drawer settings: $e');
+    }
+  }
+
+  Future<void> saveCashDrawerSettings(CashDrawerSettings settings) async {
+    try {
+      await _firestore
+          .collection('settings')
+          .doc('cashDrawer')
+          .set(settings.toFirestore(), SetOptions(merge: true));
+    } catch (e) {
+      throw Exception('Failed to save cash drawer settings: $e');
     }
   }
 }

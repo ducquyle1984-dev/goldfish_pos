@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:goldfish_pos/screens/admin/cash_drawer_settings_screen.dart';
 import 'package:goldfish_pos/screens/admin/customer_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/employee_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/item_management_screen.dart';
@@ -106,6 +107,17 @@ class AdminDashboardScreen extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) => const RewardSettingsScreen(),
+                    ),
+                  ),
+                ),
+                _AdminCard(
+                  title: 'Cash Drawer',
+                  icon: Icons.point_of_sale,
+                  color: Colors.brown,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const CashDrawerSettingsScreen(),
                     ),
                   ),
                 ),

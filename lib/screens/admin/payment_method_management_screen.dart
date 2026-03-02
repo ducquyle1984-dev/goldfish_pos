@@ -23,6 +23,7 @@ class _PaymentMethodManagementScreenState
   final _helcimTerminalIdController = TextEditingController();
   PaymentProcessorType _selectedProcessor = PaymentProcessorType.stripe;
   PaymentMethod? _editingMethod;
+  bool _isCash = false;
 
   @override
   void dispose() {
@@ -46,6 +47,7 @@ class _PaymentMethodManagementScreenState
     _helcimTerminalIdController.clear();
     _selectedProcessor = PaymentProcessorType.stripe;
     _editingMethod = null;
+    _isCash = false;
   }
 
   Future<void> _savePaymentMethod() async {
@@ -86,6 +88,7 @@ class _PaymentMethodManagementScreenState
             : _webhookUrlController.text,
         additionalConfig: additionalConfig,
         isActive: true,
+        isCash: _isCash,
         createdAt: _editingMethod?.createdAt ?? now,
         updatedAt: now,
       );
@@ -126,6 +129,7 @@ class _PaymentMethodManagementScreenState
         method.additionalConfig?['accountGuid']?.toString() ?? '';
     _helcimTerminalIdController.text =
         method.additionalConfig?['terminalId']?.toString() ?? '';
+    _isCash = method.isCash;
   }
 
   Future<void> _deletePaymentMethod(String methodId) async {
@@ -323,6 +327,22 @@ class _PaymentMethodManagementScreenState
                       ),
                     ),
                     const SizedBox(height: 16),
+                    // ── Cash drawer trigger ─────────────────────────────
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Cash Payment Method'),
+                      subtitle: const Text(
+                        'Mark this as a cash method — the cash drawer will '
+                        'open automatically when this method is used.',
+                      ),
+                      value: _isCash,
+                      onChanged: (val) => setState(() => _isCash = val),
+                      secondary: Icon(
+                        Icons.point_of_sale,
+                        color: _isCash ? Colors.green : Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     Row(
                       children: [
                         ElevatedButton.icon(
@@ -394,9 +414,17 @@ class _PaymentMethodManagementScreenState
                     return Card(
                       margin: const EdgeInsets.only(bottom: 12),
                       child: ExpansionTile(
+                        leading: method.isCash
+                            ? const Icon(
+                                Icons.point_of_sale,
+                                color: Colors.green,
+                                size: 20,
+                              )
+                            : null,
                         title: Text(method.merchantName),
                         subtitle: Text(
-                          method.processorType.toString().split('.').last,
+                          method.processorType.toString().split('.').last +
+                              (method.isCash ? ' · Cash' : ''),
                         ),
                         children: [
                           Padding(

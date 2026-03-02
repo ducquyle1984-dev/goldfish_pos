@@ -13,6 +13,10 @@ class PaymentMethod {
   final String? webhookUrl; // Webhook URL for payment notifications
   final Map<String, dynamic>? additionalConfig; // Any additional configuration
   final bool isActive;
+
+  /// When true, payments using this method are treated as cash.
+  /// The cash drawer will auto-open when a payment with this method is processed.
+  final bool isCash;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -26,6 +30,7 @@ class PaymentMethod {
     this.webhookUrl,
     this.additionalConfig,
     this.isActive = true,
+    this.isCash = false,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -42,6 +47,7 @@ class PaymentMethod {
       webhookUrl: data['webhookUrl'],
       additionalConfig: data['additionalConfig'] as Map<String, dynamic>?,
       isActive: data['isActive'] ?? true,
+      isCash: data['isCash'] as bool? ?? false,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -58,6 +64,7 @@ class PaymentMethod {
       webhookUrl: json['webhookUrl'],
       additionalConfig: json['additionalConfig'] as Map<String, dynamic>?,
       isActive: json['isActive'] ?? true,
+      isCash: json['isCash'] as bool? ?? false,
       createdAt: json['createdAt'] is Timestamp
           ? (json['createdAt'] as Timestamp).toDate()
           : DateTime.parse(
@@ -111,6 +118,7 @@ class PaymentMethod {
     'webhookUrl': webhookUrl,
     'additionalConfig': additionalConfig,
     'isActive': isActive,
+    'isCash': isCash,
     'createdAt': Timestamp.fromDate(createdAt),
     'updatedAt': Timestamp.fromDate(updatedAt),
   };
@@ -124,6 +132,7 @@ class PaymentMethod {
     'webhookUrl': webhookUrl,
     'additionalConfig': additionalConfig,
     'isActive': isActive,
+    'isCash': isCash,
     'createdAt': Timestamp.fromDate(createdAt),
     'updatedAt': Timestamp.fromDate(updatedAt),
   };
