@@ -454,7 +454,7 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                     _InstallStep(
                       number: '2',
                       text:
-                          'Right-click  install_bridge_service.ps1  →  "Run with PowerShell".\n'
+                          'Double-click  run_installer.bat  to run the setup.\n'
                           'It installs everything automatically and confirms the helper app is running.',
                     ),
                     _InstallStep(
@@ -826,94 +826,13 @@ echo Bridge stopped.
 pause
 ''';
 
-  final bridge =
-      '''#!/usr/bin/env python3
-"""
-Goldfish POS Cash Drawer Bridge
-Installed automatically by install_bridge_service.ps1
-Log: %APPDATA%\\GoldfishPOS\\bridge.log
-"""
-import sys, json, os, logging
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
-PORT = $port
-PRINTER_NAME = ""
-KICK_COMMAND = bytes([0x1B, 0x70, 0x00, 0x19, 0xFA])
-
-_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bridge.log')
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
-    handlers=[logging.FileHandler(_log_path, encoding='utf-8'), logging.StreamHandler(sys.stdout)],
-)
-log = logging.getLogger('bridge')
-
-
-def open_drawer():
-    try:
-        import win32print  # type: ignore[import]
-        printer = PRINTER_NAME or win32print.GetDefaultPrinter()
-        log.info('Opening drawer — printer: %s', printer)
-        h = win32print.OpenPrinter(printer)
-        try:
-            win32print.StartDocPrinter(h, 1, ('Cash Drawer', None, 'RAW'))
-            try:
-                win32print.StartPagePrinter(h)
-                win32print.WritePrinter(h, KICK_COMMAND)
-                win32print.EndPagePrinter(h)
-            finally:
-                win32print.EndDocPrinter(h)
-        finally:
-            win32print.ClosePrinter(h)
-        log.info('Drawer opened OK.')
-        return True, 'ok'
-    except Exception as e:
-        log.error('open_drawer: %s', e)
-        return False, str(e)
-
-
-class _H(BaseHTTPRequestHandler):
-    def log_message(self, fmt, *a): log.debug(fmt, *a)
-    def _cors(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-    def do_OPTIONS(self):
-        self.send_response(204); self._cors(); self.end_headers()
-    def do_GET(self):
-        if self.path == '/status':
-            body = json.dumps({'ok': True, 'port': PORT}).encode()
-            self.send_response(200); self._cors()
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers(); self.wfile.write(body)
-        else:
-            self.send_response(404); self.end_headers()
-    def do_POST(self):
-        if self.path == '/open-drawer':
-            ok, msg = open_drawer()
-            body = json.dumps({'ok': ok, 'message': msg}).encode()
-            self.send_response(200 if ok else 500); self._cors()
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers(); self.wfile.write(body)
-        else:
-            self.send_response(404); self.end_headers()
-
-
-if __name__ == '__main__':
-    log.info('Cash Drawer Bridge starting — port %d — log: %s', PORT, _log_path)
-    try:
-        HTTPServer(('localhost', PORT), _H).serve_forever()
-    except OSError as e:
-        log.critical('Cannot bind port %d: %s', PORT, e); sys.exit(1)
-    except KeyboardInterrupt:
-        log.info('Stopped.'); sys.exit(0)
-    except Exception as e:
-        log.critical('Fatal: %s', e, exc_info=True); sys.exit(1)
-''';
+  final runInstallerBat =
+      '@echo off\r\n'
+      'echo Running Goldfish POS Cash Drawer Installer...\r\n'
+      'PowerShell -ExecutionPolicy Bypass -File "%~dp0install_bridge_service.ps1"\r\n'
+      'if %ERRORLEVEL% NEQ 0 pause\r\n';
 
   downloadTextFile('install_bridge_service.ps1', installer);
-  downloadTextFile('cash_drawer_bridge.py', bridge);
   downloadTextFile('run_bridge_debug.bat', debugBat);
+  downloadTextFile('run_installer.bat', runInstallerBat);
 }
