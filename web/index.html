@@ -269,27 +269,52 @@
     </div>
 
     <script>
+      // ── Build version: bump this string on every deploy ──────────────────
+      // On a version mismatch we unregister all service workers, wipe every
+      // cache, and do a single hard-reload so the browser fetches fresh assets.
+      var BUILD_VERSION = "2026-03-02-v4";
+      var storedVersion = localStorage.getItem("gfpos_build");
+
+      if (storedVersion !== BUILD_VERSION) {
+        localStorage.setItem("gfpos_build", BUILD_VERSION);
+        if ("serviceWorker" in navigator && "caches" in window) {
+          Promise.all([
+            navigator.serviceWorker.getRegistrations().then(function (regs) {
+              return Promise.all(
+                regs.map(function (r) {
+                  return r.unregister();
+                }),
+              );
+            }),
+            caches.keys().then(function (keys) {
+              return Promise.all(
+                keys.map(function (k) {
+                  return caches.delete(k);
+                }),
+              );
+            }),
+          ]).then(function () {
+            window.location.reload();
+          });
+        }
+      }
+
       // ── Service Worker: always activate the newest version immediately ──────
-      // When a new build is deployed, the updated service worker now waiting
-      // will take control right away instead of waiting for all tabs to close.
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.addEventListener(
           "controllerchange",
           function () {
-            // A new service worker just took control — reload to serve fresh assets.
             window.location.reload();
           },
         );
 
         navigator.serviceWorker.ready.then(function (registration) {
-          // Check for updates every time the page gains focus.
           document.addEventListener("visibilitychange", function () {
             if (document.visibilityState === "visible") {
               registration.update();
             }
           });
 
-          // When a new worker is waiting, skip the wait phase and activate it.
           function activateWaiting(sw) {
             sw.addEventListener("statechange", function () {
               if (sw.state === "installed") {
@@ -312,8 +337,8 @@
         });
       }
 
-      // Hide the loading screen once Flutter signals it's ready
-      window.addEventListener("flutter-first-frame", function () {
+      // ── Dismiss loading overlay ───────────────────────────────────────────
+      function dismissLoading() {
         var el = document.getElementById("loading");
         if (el) {
           el.style.transition = "opacity 0.3s ease";
@@ -322,7 +347,15 @@
             el.remove();
           }, 350);
         }
-      });
+      }
+
+      // Dismiss when Flutter fires its first frame (normal path).
+      window.addEventListener("flutter-first-frame", dismissLoading);
+
+      // Safety net: if flutter-first-frame never fires (broken SW cache,
+      // network error, etc.) forcibly remove the overlay after 15 s so the
+      // user sees whatever is on screen rather than an eternal spinner.
+      setTimeout(dismissLoading, 15000);
     </script>
 
     <script src="flutter_bootstrap.js" async></script>
