@@ -36,6 +36,97 @@ class _HomeScreenState extends State<HomeScreen> {
   // In production, fetch this from Firestore
   bool get isAdmin => user?.email?.contains('admin') ?? false;
 
+  // ─── Admin PIN gate ──────────────────────────────────────────────────────
+
+  /// Shows a PIN dialog and switches to index [target] only if the user
+  /// enters a matching admin PIN or system admin PIN.
+  Future<void> _navigateWithAdminPin(int target) async {
+    final repo = _repo;
+    String? error;
+    final pinCtrl = TextEditingController();
+
+    final granted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.lock_outline, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('Admin Access'),
+            ],
+          ),
+          content: SizedBox(
+            width: 300,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Enter the Admin PIN to access settings.',
+                  style: TextStyle(color: Colors.grey),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: pinCtrl,
+                  obscureText: true,
+                  keyboardType: TextInputType.number,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: 'PIN',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.pin_outlined),
+                    errorText: error,
+                  ),
+                  onSubmitted: (_) async {
+                    final entered = pinCtrl.text.trim();
+                    final results = await Future.wait([
+                      repo.getAdminPin(),
+                      repo.getSysAdminPin(),
+                    ]);
+                    if (entered == results[0] || entered == results[1]) {
+                      if (ctx.mounted) Navigator.pop(ctx, true);
+                    } else {
+                      setDialogState(() => error = 'Incorrect PIN.');
+                      pinCtrl.clear();
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final entered = pinCtrl.text.trim();
+                final results = await Future.wait([
+                  repo.getAdminPin(),
+                  repo.getSysAdminPin(),
+                ]);
+                if (entered == results[0] || entered == results[1]) {
+                  if (ctx.mounted) Navigator.pop(ctx, true);
+                } else {
+                  setDialogState(() => error = 'Incorrect PIN.');
+                  pinCtrl.clear();
+                }
+              },
+              child: const Text('Enter'),
+            ),
+          ],
+        ),
+      ),
+    );
+    pinCtrl.dispose();
+
+    if (granted == true && mounted) {
+      setState(() => _selectedIndex = target);
+    }
+  }
+
   List<NavigationRailDestination> get _sideMenu => [
     const NavigationRailDestination(
       icon: Icon(Icons.home_outlined),
@@ -115,7 +206,11 @@ class _HomeScreenState extends State<HomeScreen> {
             NavigationRail(
               selectedIndex: _selectedIndex,
               onDestinationSelected: (index) {
-                setState(() => _selectedIndex = index);
+                if (index == 3) {
+                  _navigateWithAdminPin(index);
+                } else {
+                  setState(() => _selectedIndex = index);
+                }
               },
               destinations: menuItems,
               extended: true,
@@ -150,8 +245,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           : menuItems[index].icon,
                       selected: _selectedIndex == index,
                       onTap: () {
-                        setState(() => _selectedIndex = index);
                         Navigator.pop(context);
+                        if (index == 3) {
+                          _navigateWithAdminPin(index);
+                        } else {
+                          setState(() => _selectedIndex = index);
+                        }
                       },
                     ),
                   ),

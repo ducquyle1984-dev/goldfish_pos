@@ -10,6 +10,9 @@ class Customer {
   final String? address;
   final double rewardPoints; // Accumulated reward points
   final bool isActive;
+
+  /// When true, no SMS thank-you messages will be sent to this customer.
+  final bool smsOptOut;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -23,6 +26,7 @@ class Customer {
     this.address,
     this.rewardPoints = 0.0,
     this.isActive = true,
+    this.smsOptOut = false,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -61,6 +65,7 @@ class Customer {
       address: data['address'],
       rewardPoints: (data['rewardPoints'] ?? 0).toDouble(),
       isActive: data['isActive'] ?? true,
+      smsOptOut: data['smsOptOut'] as bool? ?? false,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -77,6 +82,7 @@ class Customer {
       address: json['address'],
       rewardPoints: (json['rewardPoints'] ?? 0).toDouble(),
       isActive: json['isActive'] ?? true,
+      smsOptOut: json['smsOptOut'] as bool? ?? false,
       createdAt: json['createdAt'] is Timestamp
           ? (json['createdAt'] as Timestamp).toDate()
           : DateTime.parse(
@@ -100,6 +106,7 @@ class Customer {
     'address': address,
     'rewardPoints': rewardPoints,
     'isActive': isActive,
+    'smsOptOut': smsOptOut,
     'createdAt': Timestamp.fromDate(createdAt),
     'updatedAt': Timestamp.fromDate(updatedAt),
   };
@@ -113,6 +120,7 @@ class Customer {
     'address': address,
     'rewardPoints': rewardPoints,
     'isActive': isActive,
+    'smsOptOut': smsOptOut,
     'createdAt': Timestamp.fromDate(createdAt),
     'updatedAt': Timestamp.fromDate(updatedAt),
   };
@@ -126,6 +134,7 @@ class Customer {
     String? address,
     double? rewardPoints,
     bool? isActive,
+    bool? smsOptOut,
     DateTime? updatedAt,
   }) {
     return Customer(
@@ -138,6 +147,7 @@ class Customer {
       address: address ?? this.address,
       rewardPoints: rewardPoints ?? this.rewardPoints,
       isActive: isActive ?? this.isActive,
+      smsOptOut: smsOptOut ?? this.smsOptOut,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

@@ -1,16 +1,103 @@
 import 'package:flutter/material.dart';
+import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/screens/admin/booking_settings_screen.dart';
 import 'package:goldfish_pos/screens/admin/cash_drawer_settings_screen.dart';
+import 'package:goldfish_pos/screens/admin/customer_feedback_screen.dart';
 import 'package:goldfish_pos/screens/admin/customer_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/employee_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/item_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/payment_method_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/item_category_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/reward_settings_screen.dart';
+import 'package:goldfish_pos/screens/admin/sms_settings_screen.dart';
+import 'package:goldfish_pos/screens/admin/system_admin_dashboard_screen.dart';
 import 'package:goldfish_pos/screens/admin/import_management_screen.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
+
+  // ── System Admin PIN gate ─────────────────────────────────────────────────
+  Future<void> _openSystemAdmin(BuildContext context) async {
+    final repo = PosRepository();
+    String? error;
+    final pinCtrl = TextEditingController();
+
+    final granted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.admin_panel_settings, color: Colors.deepOrange),
+              SizedBox(width: 8),
+              Text('System Admin Access'),
+            ],
+          ),
+          content: SizedBox(
+            width: 300,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Enter the System Admin PIN to continue.',
+                  style: TextStyle(color: Colors.grey),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: pinCtrl,
+                  obscureText: true,
+                  keyboardType: TextInputType.number,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: 'PIN',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    errorText: error,
+                  ),
+                  onSubmitted: (_) async {
+                    final correct = await repo.getSysAdminPin();
+                    if (pinCtrl.text.trim() == correct) {
+                      if (ctx.mounted) Navigator.pop(ctx, true);
+                    } else {
+                      setDialogState(() => error = 'Incorrect PIN.');
+                      pinCtrl.clear();
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final correct = await repo.getSysAdminPin();
+                if (pinCtrl.text.trim() == correct) {
+                  if (ctx.mounted) Navigator.pop(ctx, true);
+                } else {
+                  setDialogState(() => error = 'Incorrect PIN.');
+                  pinCtrl.clear();
+                }
+              },
+              child: const Text('Enter'),
+            ),
+          ],
+        ),
+      ),
+    );
+    pinCtrl.dispose();
+
+    if (granted == true && context.mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const SystemAdminDashboardScreen()),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -144,6 +231,34 @@ class AdminDashboardScreen extends StatelessWidget {
                       builder: (context) => const ImportManagementScreen(),
                     ),
                   ),
+                ),
+                _AdminCard(
+                  title: 'SMS Settings',
+                  icon: Icons.sms,
+                  color: Colors.cyan,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SmsSettingsScreen(),
+                    ),
+                  ),
+                ),
+                _AdminCard(
+                  title: 'Feedback',
+                  icon: Icons.feedback,
+                  color: Colors.red,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const CustomerFeedbackScreen(),
+                    ),
+                  ),
+                ),
+                _AdminCard(
+                  title: 'System Admin',
+                  icon: Icons.admin_panel_settings,
+                  color: Colors.deepOrange,
+                  onTap: () => _openSystemAdmin(context),
                 ),
               ],
             ),

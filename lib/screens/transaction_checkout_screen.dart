@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:goldfish_pos/models/customer_feedback_model.dart';
 import 'package:goldfish_pos/models/customer_model.dart';
 import 'package:goldfish_pos/models/payment_method_model.dart';
 import 'package:goldfish_pos/models/reward_settings_model.dart';
+import 'package:goldfish_pos/models/sms_settings_model.dart';
 import 'package:goldfish_pos/models/transaction_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/services/cash_drawer_service.dart';
 import 'package:goldfish_pos/services/helcim_service.dart';
+import 'package:goldfish_pos/services/sms_service.dart';
 
 /// Screen for viewing and checking out a pending transaction.
 class TransactionCheckoutScreen extends StatefulWidget {
@@ -35,6 +38,10 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
   final _rewardPointsCtrl = TextEditingController();
   Customer? _customer;
   RewardSettings _rewardSettings = const RewardSettings();
+
+  /// Per-transaction SMS opt-out. Defaults to true (send SMS). Staff can
+  /// flip this off before checkout to suppress the post-payment survey.
+  bool _sendSmsThisTransaction = true;
 
   bool _isSaving = false;
 
@@ -334,6 +341,8 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
             _customer = refreshed;
           });
         }
+        // Show post-payment survey
+        if (mounted) await _showPostPaymentSurvey(paid);
         return;
       }
     }
@@ -341,6 +350,204 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
     if (mounted) {
       setState(() => _transaction = paid);
       _showSuccess('Transaction marked as paid!');
+      await _showPostPaymentSurvey(paid);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // POST-PAYMENT SURVEY + SMS FLOW
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Called after a transaction is fully paid.
+  /// If SMS is enabled and the customer has a phone number, shows a survey
+  /// dialog. Positive → send thank-you SMS with optional Google Review link.
+  /// Negative → collect feedback, store it in Firestore, send a consolation SMS.
+  Future<void> _showPostPaymentSurvey(Transaction paidTransaction) async {
+    if (!mounted) return;
+
+    // Load SMS settings
+    SmsSettings smsSettings;
+    try {
+      smsSettings = await _repo.getSmsSettings();
+    } catch (_) {
+      return; // silently skip if we can't load settings
+    }
+
+    if (!smsSettings.enabled) return;
+
+    // Respect customer-level opt-out
+    if (_customer?.smsOptOut == true) return;
+
+    // Respect per-transaction opt-out
+    if (!_sendSmsThisTransaction) return;
+
+    // Determine customer name and phone
+    final customer = _customer;
+    final customerName =
+        customer?.name ?? paidTransaction.customerName ?? 'Valued Customer';
+    final customerPhone = customer?.phone ?? '';
+
+    // Ask for survey rating
+    if (!mounted) return;
+    final rating = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _SurveyRatingDialog(customerName: customerName),
+    );
+
+    if (rating == null) return; // dismissed
+
+    if (rating) {
+      // ── POSITIVE ──────────────────────────────────────────────────────
+      await _handlePositiveFeedback(
+        paidTransaction: paidTransaction,
+        smsSettings: smsSettings,
+        customerName: customerName,
+        customerPhone: customerPhone,
+        customer: customer,
+      );
+    } else {
+      // ── NEGATIVE ──────────────────────────────────────────────────────
+      await _handleNegativeFeedback(
+        paidTransaction: paidTransaction,
+        smsSettings: smsSettings,
+        customerName: customerName,
+        customerPhone: customerPhone,
+        customer: customer,
+      );
+    }
+  }
+
+  /// Positive path: preview the thank-you + review SMS and optionally send it.
+  Future<void> _handlePositiveFeedback({
+    required Transaction paidTransaction,
+    required SmsSettings smsSettings,
+    required String customerName,
+    required String customerPhone,
+    Customer? customer,
+  }) async {
+    if (!mounted) return;
+
+    final composedMessage = smsSettings.buildPositiveMessage(customerName);
+
+    // Show SMS preview / send dialog
+    final result = await showDialog<_SmsPreviewResult?>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _SmsPreviewDialog(
+        title: 'Send Thank-You SMS',
+        subtitle:
+            'The customer left a positive rating. Review and send the message below.',
+        initialMessage: composedMessage,
+        phoneNumber: customerPhone,
+        positiveIcon: true,
+      ),
+    );
+
+    if (result == null || !result.shouldSend || customerPhone.isEmpty) return;
+
+    final smsService = SmsService(
+      accountSid: smsSettings.accountSid,
+      authToken: smsSettings.authToken,
+      fromNumber: smsSettings.fromNumber,
+    );
+
+    final sendResult = await smsService.send(
+      toNumber: customerPhone,
+      body: result.message,
+    );
+
+    if (mounted) {
+      final isSuccess = sendResult == SmsSendResult.success;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(SmsService.resultMessage(sendResult)),
+          backgroundColor: isSuccess ? Colors.green : Colors.orange,
+        ),
+      );
+    }
+  }
+
+  /// Negative path: collect feedback text, store in Firestore, optionally send SMS.
+  Future<void> _handleNegativeFeedback({
+    required Transaction paidTransaction,
+    required SmsSettings smsSettings,
+    required String customerName,
+    required String customerPhone,
+    Customer? customer,
+  }) async {
+    if (!mounted) return;
+
+    // Collect feedback text
+    final feedbackResult = await showDialog<_NegativeFeedbackResult?>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _NegativeFeedbackDialog(
+        customerName: customerName,
+        negativeMessage: smsSettings.buildNegativeMessage(customerName),
+        customerPhone: customerPhone,
+      ),
+    );
+
+    if (feedbackResult == null) return;
+
+    bool smsSent = false;
+
+    // Optionally send negative SMS
+    if (feedbackResult.sendSms && customerPhone.isNotEmpty) {
+      final smsService = SmsService(
+        accountSid: smsSettings.accountSid,
+        authToken: smsSettings.authToken,
+        fromNumber: smsSettings.fromNumber,
+      );
+
+      final sendResult = await smsService.send(
+        toNumber: customerPhone,
+        body: feedbackResult.smsMessage,
+      );
+
+      smsSent = sendResult == SmsSendResult.success;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(SmsService.resultMessage(sendResult)),
+            backgroundColor: smsSent ? Colors.green : Colors.orange,
+          ),
+        );
+      }
+    }
+
+    // Always store the feedback in Firestore
+    if (feedbackResult.feedbackText.trim().isNotEmpty) {
+      try {
+        await _repo.saveCustomerFeedback(
+          CustomerFeedback(
+            id: '',
+            transactionId: paidTransaction.id,
+            customerId: customer?.id,
+            customerName: customerName,
+            customerPhone: customerPhone,
+            feedbackText: feedbackResult.feedbackText.trim(),
+            smsSent: smsSent,
+            createdAt: DateTime.now(),
+          ),
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Feedback saved. Thank you for helping us improve!',
+              ),
+              backgroundColor: Colors.blue,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          _showError('Could not save feedback: $e');
+        }
+      }
     }
   }
 
@@ -840,6 +1047,31 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
               ),
             ),
           ),
+          const SizedBox(height: 12),
+
+          // ── Per-transaction SMS toggle ────────────────────────────────
+          Card(
+            child: SwitchListTile(
+              secondary: Icon(
+                _sendSmsThisTransaction
+                    ? Icons.sms_outlined
+                    : Icons.sms_failed_outlined,
+                color: _sendSmsThisTransaction ? Colors.teal : Colors.grey,
+              ),
+              title: const Text('Send thank-you SMS after payment'),
+              subtitle: Text(
+                _customer?.smsOptOut == true
+                    ? 'Customer is opted out of SMS — will not be sent.'
+                    : _sendSmsThisTransaction
+                    ? 'An SMS survey will be sent after checkout.'
+                    : 'SMS survey suppressed for this transaction.',
+              ),
+              value: _sendSmsThisTransaction && _customer?.smsOptOut != true,
+              onChanged: _customer?.smsOptOut == true
+                  ? null // greyed-out when customer is opted out
+                  : (v) => setState(() => _sendSmsThisTransaction = v),
+            ),
+          ),
         ],
 
         if (isPaid)
@@ -1186,6 +1418,348 @@ class _HelcimPaymentDialogState extends State<_HelcimPaymentDialog> {
                         : _txIdController.text.trim(),
                   ),
                 ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SMS / Survey dialog widgets
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Shows a thumbs-up / thumbs-down rating prompt.
+/// Returns true for positive, false for negative, null if dismissed.
+class _SurveyRatingDialog extends StatelessWidget {
+  final String customerName;
+  const _SurveyRatingDialog({required this.customerName});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('How was their experience?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Ask $customerName to rate their visit today.',
+            style: const TextStyle(fontSize: 15),
+          ),
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _RatingButton(
+                icon: Icons.thumb_up_rounded,
+                label: 'Great!',
+                color: Colors.green,
+                onTap: () => Navigator.pop(context, true),
+              ),
+              _RatingButton(
+                icon: Icons.thumb_down_rounded,
+                label: 'Not great',
+                color: Colors.red,
+                onTap: () => Navigator.pop(context, false),
+              ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('Skip'),
+        ),
+      ],
+    );
+  }
+}
+
+class _RatingButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _RatingButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          border: Border.all(color: color.withOpacity(0.4)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 40, color: color),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(fontWeight: FontWeight.bold, color: color),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── SMS preview dialog ───────────────────────────────────────────────────────
+
+class _SmsPreviewResult {
+  final bool shouldSend;
+  final String message;
+  const _SmsPreviewResult({required this.shouldSend, required this.message});
+}
+
+class _SmsPreviewDialog extends StatefulWidget {
+  final String title;
+  final String subtitle;
+  final String initialMessage;
+  final String phoneNumber;
+  final bool positiveIcon;
+
+  const _SmsPreviewDialog({
+    required this.title,
+    required this.subtitle,
+    required this.initialMessage,
+    required this.phoneNumber,
+    this.positiveIcon = true,
+  });
+
+  @override
+  State<_SmsPreviewDialog> createState() => _SmsPreviewDialogState();
+}
+
+class _SmsPreviewDialogState extends State<_SmsPreviewDialog> {
+  late final TextEditingController _msgCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _msgCtrl = TextEditingController(text: widget.initialMessage);
+  }
+
+  @override
+  void dispose() {
+    _msgCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(
+        children: [
+          Icon(
+            widget.positiveIcon ? Icons.star_rounded : Icons.message_rounded,
+            color: widget.positiveIcon ? Colors.amber : Colors.blue,
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(widget.title)),
+        ],
+      ),
+      content: SizedBox(
+        width: 480,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.subtitle,
+              style: const TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            if (widget.phoneNumber.isNotEmpty) ...[
+              Text(
+                'To: ${widget.phoneNumber}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+            TextField(
+              controller: _msgCtrl,
+              maxLines: 6,
+              decoration: const InputDecoration(
+                labelText: 'Message',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+            ),
+            if (widget.phoneNumber.isEmpty) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'No phone number on file — SMS cannot be sent. The message is shown for reference.',
+                style: TextStyle(color: Colors.orange, fontSize: 12),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(
+            context,
+            const _SmsPreviewResult(shouldSend: false, message: ''),
+          ),
+          child: const Text('Skip'),
+        ),
+        if (widget.phoneNumber.isNotEmpty)
+          FilledButton.icon(
+            icon: const Icon(Icons.send),
+            label: const Text('Send SMS'),
+            onPressed: () => Navigator.pop(
+              context,
+              _SmsPreviewResult(shouldSend: true, message: _msgCtrl.text),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// ─── Negative feedback dialog ─────────────────────────────────────────────────
+
+class _NegativeFeedbackResult {
+  final String feedbackText;
+  final bool sendSms;
+  final String smsMessage;
+  const _NegativeFeedbackResult({
+    required this.feedbackText,
+    required this.sendSms,
+    required this.smsMessage,
+  });
+}
+
+class _NegativeFeedbackDialog extends StatefulWidget {
+  final String customerName;
+  final String negativeMessage;
+  final String customerPhone;
+
+  const _NegativeFeedbackDialog({
+    required this.customerName,
+    required this.negativeMessage,
+    required this.customerPhone,
+  });
+
+  @override
+  State<_NegativeFeedbackDialog> createState() =>
+      _NegativeFeedbackDialogState();
+}
+
+class _NegativeFeedbackDialogState extends State<_NegativeFeedbackDialog> {
+  late final TextEditingController _feedbackCtrl;
+  late final TextEditingController _msgCtrl;
+  bool _sendSms = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _feedbackCtrl = TextEditingController();
+    _msgCtrl = TextEditingController(text: widget.negativeMessage);
+  }
+
+  @override
+  void dispose() {
+    _feedbackCtrl.dispose();
+    _msgCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.sentiment_dissatisfied, color: Colors.red),
+          SizedBox(width: 8),
+          Text('Capture Feedback'),
+        ],
+      ),
+      content: SizedBox(
+        width: 480,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'We\'re sorry ${widget.customerName}\'s experience wasn\'t perfect. '
+              'Please note their feedback so we can improve.',
+              style: const TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _feedbackCtrl,
+              maxLines: 4,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Customer Feedback',
+                hintText: 'What could we have done better?',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
+            // SMS section
+            if (widget.customerPhone.isNotEmpty) ...[
+              CheckboxListTile(
+                value: _sendSms,
+                onChanged: (v) => setState(() => _sendSms = v ?? false),
+                title: const Text('Send a thank-you SMS'),
+                subtitle: Text('To: ${widget.customerPhone}'),
+                contentPadding: EdgeInsets.zero,
+              ),
+              if (_sendSms) ...[
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _msgCtrl,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'SMS Message',
+                    border: OutlineInputBorder(),
+                    alignLabelWithHint: true,
+                  ),
+                ),
+              ],
+            ] else
+              const Text(
+                'No phone number on file — SMS will not be sent.',
+                style: TextStyle(color: Colors.orange, fontSize: 12),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(
+            context,
+            _NegativeFeedbackResult(
+              feedbackText: _feedbackCtrl.text,
+              sendSms: _sendSms && widget.customerPhone.isNotEmpty,
+              smsMessage: _msgCtrl.text,
+            ),
+          ),
+          child: const Text('Save Feedback'),
         ),
       ],
     );

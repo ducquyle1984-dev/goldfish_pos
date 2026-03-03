@@ -147,6 +147,7 @@ class _CustomerFormDialogState extends State<_CustomerFormDialog> {
 
   int _birthMonth = 1;
   int _birthDay = 1;
+  bool _smsOptOut = false;
   bool _saving = false;
 
   static const _months = [
@@ -173,6 +174,7 @@ class _CustomerFormDialogState extends State<_CustomerFormDialog> {
     _emailCtrl = TextEditingController(text: c?.email ?? '');
     _birthMonth = c?.birthMonth ?? 1;
     _birthDay = c?.birthDay ?? 1;
+    _smsOptOut = c?.smsOptOut ?? false;
   }
 
   @override
@@ -202,6 +204,7 @@ class _CustomerFormDialogState extends State<_CustomerFormDialog> {
           birthMonth: _birthMonth,
           birthDay: _birthDay,
           email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+          smsOptOut: _smsOptOut,
           createdAt: now,
           updatedAt: now,
         );
@@ -214,6 +217,7 @@ class _CustomerFormDialogState extends State<_CustomerFormDialog> {
           birthMonth: _birthMonth,
           birthDay: _birthDay,
           email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+          smsOptOut: _smsOptOut,
           updatedAt: now,
         );
         await widget.repo.updateCustomer(updated);
@@ -346,8 +350,22 @@ class _CustomerFormDialogState extends State<_CustomerFormDialog> {
                     prefixIcon: Icon(Icons.email_outlined),
                   ),
                 ),
+                const SizedBox(height: 14),
 
-                // Show current reward points for existing customers
+                // SMS opt-out
+                SwitchListTile(
+                  value: _smsOptOut,
+                  onChanged: (v) => setState(() => _smsOptOut = v),
+                  title: const Text('Opt out of SMS messages'),
+                  subtitle: const Text(
+                    'No thank-you SMS will be sent to this customer after checkout.',
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                  secondary: Icon(
+                    _smsOptOut ? Icons.sms_failed_outlined : Icons.sms_outlined,
+                    color: _smsOptOut ? Colors.red : Colors.grey,
+                  ),
+                ),
                 if (isEdit) ...[
                   const SizedBox(height: 14),
                   Container(

@@ -8,7 +8,9 @@ import 'package:goldfish_pos/models/item_model.dart';
 import 'package:goldfish_pos/models/employee_model.dart';
 import 'package:goldfish_pos/models/customer_model.dart';
 import 'package:goldfish_pos/models/payment_method_model.dart';
+import 'package:goldfish_pos/models/customer_feedback_model.dart';
 import 'package:goldfish_pos/models/reward_settings_model.dart';
+import 'package:goldfish_pos/models/sms_settings_model.dart';
 import 'package:goldfish_pos/models/transaction_model.dart';
 
 class PosRepository {
@@ -722,6 +724,151 @@ class PosRepository {
           .set(settings.toFirestore());
     } catch (e) {
       throw Exception('Failed to save booking settings: $e');
+    }
+  }
+
+  // ==================== SMS Settings ====================
+
+  Future<SmsSettings> getSmsSettings() async {
+    try {
+      final doc = await _firestore.collection('settings').doc('sms').get();
+      if (doc.exists) return SmsSettings.fromFirestore(doc);
+      return const SmsSettings();
+    } catch (e) {
+      throw Exception('Failed to get SMS settings: $e');
+    }
+  }
+
+  Future<void> saveSmsSettings(SmsSettings settings) async {
+    try {
+      await _firestore
+          .collection('settings')
+          .doc('sms')
+          .set(settings.toFirestore());
+    } catch (e) {
+      throw Exception('Failed to save SMS settings: $e');
+    }
+  }
+
+  // ==================== Customer Feedback ====================
+
+  Future<String> saveCustomerFeedback(CustomerFeedback feedback) async {
+    try {
+      final docRef = await _firestore
+          .collection('customerFeedback')
+          .add(feedback.toFirestore());
+      return docRef.id;
+    } catch (e) {
+      throw Exception('Failed to save customer feedback: $e');
+    }
+  }
+
+  Stream<List<CustomerFeedback>> streamCustomerFeedback() {
+    return _firestore
+        .collection('customerFeedback')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => CustomerFeedback.fromFirestore(doc))
+              .toList(),
+        );
+  }
+
+  Future<void> deleteCustomerFeedback(String feedbackId) async {
+    try {
+      await _firestore.collection('customerFeedback').doc(feedbackId).delete();
+    } catch (e) {
+      throw Exception('Failed to delete feedback: $e');
+    }
+  }
+
+  /// Saves only public SMS fields (enable, templates, reviewUrl) using merge
+  /// so that Twilio credentials stored by System Admin are never overwritten.
+  Future<void> saveSmsPublicSettings(SmsSettings settings) async {
+    try {
+      await _firestore.collection('settings').doc('sms').set({
+        'enabled': settings.enabled,
+        'positiveTemplate': settings.positiveTemplate,
+        'negativeTemplate': settings.negativeTemplate,
+        'googleReviewUrl': settings.googleReviewUrl,
+      }, SetOptions(merge: true));
+    } catch (e) {
+      throw Exception('Failed to save SMS settings: $e');
+    }
+  }
+
+  /// Saves only Twilio credentials using merge (System Admin only).
+  Future<void> saveTwilioCredentials({
+    required String accountSid,
+    required String authToken,
+    required String fromNumber,
+  }) async {
+    try {
+      await _firestore.collection('settings').doc('sms').set({
+        'accountSid': accountSid,
+        'authToken': authToken,
+        'fromNumber': fromNumber,
+      }, SetOptions(merge: true));
+    } catch (e) {
+      throw Exception('Failed to save Twilio credentials: $e');
+    }
+  }
+
+  // ==================== System Admin PIN ====================
+
+  /// Default PIN used when none has been set yet.
+  static const String _defaultPin = '0000';
+
+  /// Retrieves the System Admin PIN from Firestore.
+  /// Returns '0000' if not yet configured.
+  Future<String> getSysAdminPin() async {
+    try {
+      final doc = await _firestore
+          .collection('settings')
+          .doc('systemAdmin')
+          .get();
+      return (doc.data()?['pin'] as String?) ?? _defaultPin;
+    } catch (e) {
+      return _defaultPin;
+    }
+  }
+
+  /// Saves a new System Admin PIN.
+  Future<void> saveSysAdminPin(String pin) async {
+    try {
+      await _firestore.collection('settings').doc('systemAdmin').set({
+        'pin': pin,
+      }, SetOptions(merge: true));
+    } catch (e) {
+      throw Exception('Failed to save PIN: $e');
+    }
+  }
+
+  // ==================== Admin PIN ====================
+
+  /// Default admin PIN used when none has been set yet.
+  static const String _defaultAdminPin = '1234';
+
+  /// Retrieves the Admin (Setup screen) PIN from Firestore.
+  /// Returns '1234' if not yet configured.
+  Future<String> getAdminPin() async {
+    try {
+      final doc = await _firestore.collection('settings').doc('admin').get();
+      return (doc.data()?['pin'] as String?) ?? _defaultAdminPin;
+    } catch (e) {
+      return _defaultAdminPin;
+    }
+  }
+
+  /// Saves a new Admin PIN.
+  Future<void> saveAdminPin(String pin) async {
+    try {
+      await _firestore.collection('settings').doc('admin').set({
+        'pin': pin,
+      }, SetOptions(merge: true));
+    } catch (e) {
+      throw Exception('Failed to save admin PIN: $e');
     }
   }
 }
