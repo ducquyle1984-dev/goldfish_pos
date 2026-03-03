@@ -136,6 +136,21 @@ class _QuickBookDialogState extends State<_QuickBookDialog> {
         '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
     final timeLabel = _selectedTime.format(context);
 
+    final isBlackout =
+        _settings != null &&
+        !_settings!.isDateAvailable(_selectedDate) &&
+        // distinguish blackout from closed weekday — show different messages
+        _settings!.blackoutDates.any(
+          (b) =>
+              b.year == _selectedDate.year &&
+              b.month == _selectedDate.month &&
+              b.day == _selectedDate.day,
+        );
+    final isClosedDay =
+        _settings != null &&
+        !_settings!.enabledWeekdays.contains(_selectedDate.weekday) &&
+        !isBlackout;
+
     return AlertDialog(
       title: Row(
         children: [
@@ -153,6 +168,66 @@ class _QuickBookDialogState extends State<_QuickBookDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // ── Blackout / closed-day warning ──────────────────────
+                if (isBlackout) ...[
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.event_busy,
+                          color: Colors.orange.shade700,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '$dateLabel is a blackout date. You can still book as staff override.',
+                            style: TextStyle(
+                              color: Colors.orange.shade800,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (isClosedDay) ...[
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.store_outlined,
+                          color: Colors.orange.shade700,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '$dateLabel is outside normal business days. You can still book as staff override.',
+                            style: TextStyle(
+                              color: Colors.orange.shade800,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 // Name
                 TextFormField(
                   controller: _nameCtrl,
