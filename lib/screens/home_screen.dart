@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
+import 'package:goldfish_pos/providers/theme_provider.dart';
 import 'package:goldfish_pos/widgets/animated_goldfish.dart';
 import 'package:goldfish_pos/models/appointment_model.dart';
 import 'package:goldfish_pos/models/customer_model.dart';
@@ -74,6 +76,20 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         elevation: 0,
         actions: [
+          // ── Theme toggle ─────────────────────────────────────────
+          Consumer<ThemeProvider>(
+            builder: (context, themeProvider, _) => IconButton(
+              icon: Icon(
+                themeProvider.useWaterTheme
+                    ? Icons.light_mode_outlined
+                    : Icons.dark_mode_outlined,
+              ),
+              tooltip: themeProvider.useWaterTheme
+                  ? 'Switch to light theme'
+                  : 'Switch to water theme',
+              onPressed: themeProvider.toggle,
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: Center(
@@ -103,7 +119,6 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               destinations: menuItems,
               extended: true,
-              backgroundColor: Colors.grey.shade100,
             ),
           Expanded(child: _buildPage(_selectedIndex, isAdmin)),
         ],
@@ -114,7 +129,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: EdgeInsets.zero,
                 children: [
                   DrawerHeader(
-                    decoration: BoxDecoration(color: Colors.blue.shade700),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
                     child: const Text(
                       'Menu',
                       style: TextStyle(
@@ -196,9 +213,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 8),
               Text(
                 'Tap to reopen and check out',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade500),
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
           ),
@@ -221,9 +236,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 8),
               Text(
                 'Tap to start a new transaction',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade500),
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
           ),
@@ -405,21 +418,25 @@ class _HomeScreenState extends State<HomeScreen> {
           return Container(
             padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
             decoration: BoxDecoration(
-              color: Colors.grey.shade100,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade300),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
             ),
             child: Row(
               children: [
                 Icon(
                   Icons.inbox_outlined,
-                  color: Colors.grey.shade400,
+                  color: Theme.of(context).colorScheme.outline,
                   size: 28,
                 ),
                 const SizedBox(width: 12),
                 Text(
                   'No pending transactions',
-                  style: TextStyle(color: Colors.grey.shade500),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
                 ),
               ],
             ),
@@ -564,7 +581,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             Icon(
                               Icons.badge_outlined,
                               size: 10,
-                              color: Colors.grey.shade500,
+                              color: Theme.of(context).colorScheme.outline,
                             ),
                             const SizedBox(width: 3),
                             Expanded(
@@ -572,7 +589,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 employees,
                                 style: TextStyle(
                                   fontSize: 10,
-                                  color: Colors.grey.shade500,
+                                  color: Theme.of(context).colorScheme.outline,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -902,7 +919,10 @@ class _ApptChip extends StatelessWidget {
           ),
           Text(
             appt.serviceName,
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            style: TextStyle(
+              fontSize: 11,
+              color: Theme.of(context).colorScheme.outline,
+            ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
