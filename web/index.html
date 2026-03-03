@@ -269,10 +269,31 @@
     </div>
 
     <script>
+      // ── Service worker hard-reset ─────────────────────────────────────────
+      // Our new Flutter build no longer registers a service worker.
+      // If the browser still has an OLD service worker from a previous build,
+      // it intercepts requests and serves stale cached JS → white screen.
+      // We unconditionally unregister every SW on every page load; if any
+      // existed we do ONE reload so the fresh files are fetched with no SW.
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          var hadSW = regs.length > 0;
+          Promise.all(regs.map(function (r) { return r.unregister(); }))
+            .then(function () {
+              if (hadSW) {
+                caches.keys().then(function (keys) {
+                  Promise.all(keys.map(function (k) { return caches.delete(k); }))
+                    .then(function () { window.location.reload(); });
+                });
+              }
+            });
+        });
+      }
+
       // ── Build version: bump this string on every deploy ──────────────────
       // On a version mismatch we unregister all service workers, wipe every
       // cache, and do a single hard-reload so the browser fetches fresh assets.
-      var BUILD_VERSION = "2026-03-03-v1";
+      var BUILD_VERSION = "2026-03-03-v2";
       var storedVersion = localStorage.getItem("gfpos_build");
 
       if (storedVersion !== BUILD_VERSION) {
