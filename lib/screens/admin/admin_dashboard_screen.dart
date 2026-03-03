@@ -7,6 +7,7 @@ import 'package:goldfish_pos/screens/admin/item_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/payment_method_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/item_category_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/reward_settings_screen.dart';
+import 'package:goldfish_pos/screens/admin/import_management_screen.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
@@ -133,7 +134,17 @@ class AdminDashboardScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-                // Add more _AdminCard widgets here if needed
+                _AdminCard(
+                  title: 'Import Data',
+                  icon: Icons.upload_file,
+                  color: Colors.indigo,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ImportManagementScreen(),
+                    ),
+                  ),
+                ),
               ],
             ),
           ],
