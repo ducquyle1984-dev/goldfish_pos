@@ -69,18 +69,22 @@ class _LoginScreenState extends State<LoginScreen>
       body: Stack(
         children: [
           // ── Deep-water gradient background ──────────────────────────
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xFF0A1628),
-                  Color(0xFF0D2B45),
-                  Color(0xFF0F4C75),
-                  Color(0xFF1B6CA8),
-                ],
-                stops: [0.0, 0.35, 0.70, 1.0],
+          // SizedBox.expand() forces the Container to fill the Stack;
+          // without it a Container with no child collapses to 0×0.
+          SizedBox.expand(
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0xFF0A1628),
+                    Color(0xFF0D2B45),
+                    Color(0xFF0F4C75),
+                    Color(0xFF1B6CA8),
+                  ],
+                  stops: [0.0, 0.35, 0.70, 1.0],
+                ),
               ),
             ),
           ),
