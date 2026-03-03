@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:goldfish_pos/widgets/animated_goldfish.dart';
 import 'package:goldfish_pos/models/appointment_model.dart';
 import 'package:goldfish_pos/models/customer_model.dart';
 import 'package:goldfish_pos/models/employee_model.dart';
@@ -63,7 +64,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Goldfish POS'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const AnimatedGoldfish(size: 42),
+            const SizedBox(width: 10),
+            const Text('Goldfish POS'),
+          ],
+        ),
         elevation: 0,
         actions: [
           Padding(
