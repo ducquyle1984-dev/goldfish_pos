@@ -1,13 +1,5 @@
-{
-  {
-    flutter_js;
-  }
-}
-{
-  {
-    flutter_build_config;
-  }
-}
+﻿{{flutter_js}}
+{{flutter_build_config}}
 
 // Register the service worker in the background for subsequent visits,
 // but do NOT block Flutter startup waiting for it to activate.
@@ -39,5 +31,5 @@ if ("serviceWorker" in navigator) {
     });
 }
 
-// Start Flutter immediately — do not wait for the service worker to be ready.
+// Start Flutter immediately -- do not wait for the service worker to be ready.
 _flutter.loader.load();

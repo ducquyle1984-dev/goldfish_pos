@@ -1,0 +1,9 @@
+{
+  "[javascript]": {
+    "editor.formatOnSave": true
+  },
+  "editor.formatOnSave": true,
+  "files.associations": {
+    "web/flutter_bootstrap.js": "plaintext"
+  }
+}
