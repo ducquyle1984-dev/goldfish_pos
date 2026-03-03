@@ -16,11 +16,75 @@ import 'utils/platform_utils.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // Load theme preference synchronously (fast, local storage).
   final themeProvider = await ThemeProvider.load();
+  // Call runApp immediately so Flutter renders a first frame and the HTML
+  // loading spinner is dismissed. Firebase is initialised inside the widget
+  // tree via AppInitializer, so a slow / failing network never blocks startup.
   runApp(
-    ChangeNotifierProvider.value(value: themeProvider, child: const MyApp()),
+    ChangeNotifierProvider.value(
+      value: themeProvider,
+      child: const AppInitializer(),
+    ),
   );
+}
+
+/// Initialises Firebase then hands off to [MyApp].
+/// Using a FutureBuilder ensures runApp() is called immediately and Flutter
+/// always fires its first frame, hiding the HTML loading screen.
+class AppInitializer extends StatefulWidget {
+  const AppInitializer({super.key});
+
+  @override
+  State<AppInitializer> createState() => _AppInitializerState();
+}
+
+class _AppInitializerState extends State<AppInitializer> {
+  late final Future<void> _init;
+
+  @override
+  void initState() {
+    super.initState();
+    _init = Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<void>(
+      future: _init,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return MaterialApp(
+            home: Scaffold(
+              backgroundColor: const Color(0xFF0D2B45),
+              body: Center(
+                child: Text(
+                  'Could not connect to server.\nPlease refresh the page.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 16),
+                ),
+              ),
+            ),
+          );
+        }
+        if (snapshot.connectionState != ConnectionState.done) {
+          // Firebase still loading — show a minimal Dart spinner so the
+          // HTML overlay is dismissed while we wait.
+          return const MaterialApp(
+            home: Scaffold(
+              backgroundColor: Color(0xFF0D2B45),
+              body: Center(
+                child: CircularProgressIndicator(color: Color(0xFFFF8C00)),
+              ),
+            ),
+          );
+        }
+        return const MyApp();
+      },
+    );
+  }
 }
 
 class MyApp extends StatelessWidget {
