@@ -85,7 +85,10 @@ class CashDrawerService {
   /// Send an open-drawer request to the local bridge script.
   Future<CashDrawerResult> _openViaBridge(int bridgePort) async {
     try {
-      final uri = Uri.parse('http://localhost:$bridgePort/open-drawer');
+      // Use 127.0.0.1 explicitly — on some Windows machines "localhost" resolves
+      // to ::1 (IPv6) but the bridge binds to 127.0.0.1 (IPv4), causing a
+      // connection failure even though the bridge is running correctly.
+      final uri = Uri.parse('http://127.0.0.1:$bridgePort/open-drawer');
       final response = await http.post(uri).timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) return CashDrawerResult.success;
       return CashDrawerResult.connectionFailed;

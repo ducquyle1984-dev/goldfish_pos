@@ -62,8 +62,10 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
       _bridgeError = null;
     });
     try {
+      // Use 127.0.0.1 explicitly — on some Windows machines "localhost" resolves
+      // to ::1 (IPv6) but the bridge binds to 127.0.0.1 (IPv4).
       final res = await http
-          .get(Uri.parse('http://localhost:${_settings.bridgePort}/status'))
+          .get(Uri.parse('http://127.0.0.1:${_settings.bridgePort}/status'))
           .timeout(const Duration(seconds: 4));
       if (mounted) {
         setState(() {
@@ -166,7 +168,7 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
 
   /// Returns widgets shown inside the Helper App card when the bridge is offline.
   List<Widget> _offlineTroubleshoot(BuildContext context) {
-    final statusUrl = 'http://localhost:${_settings.bridgePort}/status';
+    final statusUrl = 'http://127.0.0.1:${_settings.bridgePort}/status';
     return [
       const SizedBox(height: 12),
       Container(
