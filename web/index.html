@@ -1,11 +1,11 @@
-<!doctype html>
+﻿<!doctype html>
 <html>
   <head>
     <base href="$FLUTTER_BASE_HREF" />
 
     <meta charset="UTF-8" />
     <meta content="IE=Edge" http-equiv="X-UA-Compatible" />
-    <meta name="description" content="Goldfish POS — Point of Sale System" />
+    <meta name="description" content="Goldfish POS â€” Point of Sale System" />
 
     <!-- Never cache this file so browsers always fetch the latest build -->
     <meta
@@ -261,7 +261,7 @@
     <div id="loading">
       <div class="logo-wrap">
         <div class="fish-ring"></div>
-        <div class="fish-icon">🐟</div>
+        <div class="fish-icon">ðŸŸ</div>
       </div>
       <div class="app-name">Goldfish POS</div>
       <div class="app-sub">Point of Sale System</div>
@@ -269,10 +269,10 @@
     </div>
 
     <script>
-      // ── Service worker hard-reset ─────────────────────────────────────────
+      // â”€â”€ Service worker hard-reset â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       // Our new Flutter build no longer registers a service worker.
       // If the browser still has an OLD service worker from a previous build,
-      // it intercepts requests and serves stale cached JS → white screen.
+      // it intercepts requests and serves stale cached JS â†’ white screen.
       // We unconditionally unregister every SW on every page load; if any
       // existed we do ONE reload so the fresh files are fetched with no SW.
       if ("serviceWorker" in navigator) {
@@ -290,10 +290,10 @@
         });
       }
 
-      // ── Build version: bump this string on every deploy ──────────────────
+      // â”€â”€ Build version: bump this string on every deploy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       // On a version mismatch we unregister all service workers, wipe every
       // cache, and do a single hard-reload so the browser fetches fresh assets.
-      var BUILD_VERSION = "2026-03-03-v4";
+      var BUILD_VERSION = "2026-03-04-v1";
       var storedVersion = localStorage.getItem("gfpos_build");
 
       if (storedVersion !== BUILD_VERSION) {
@@ -320,7 +320,7 @@
         }
       }
 
-      // ── Service Worker: always activate the newest version immediately ──────
+      // â”€â”€ Service Worker: always activate the newest version immediately â”€â”€â”€â”€â”€â”€
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.addEventListener(
           "controllerchange",
@@ -358,7 +358,7 @@
         });
       }
 
-      // ── Dismiss loading overlay ───────────────────────────────────────────
+      // â”€â”€ Dismiss loading overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       function dismissLoading() {
         var el = document.getElementById("loading");
         if (el) {
