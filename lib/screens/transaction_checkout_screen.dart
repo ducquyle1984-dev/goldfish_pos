@@ -9,6 +9,7 @@ import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/services/cash_drawer_service.dart';
 import 'package:goldfish_pos/services/helcim_service.dart';
 import 'package:goldfish_pos/services/sms_service.dart';
+import 'package:goldfish_pos/widgets/receipt_print_dialog.dart';
 
 /// Screen for viewing and checking out a pending transaction.
 class TransactionCheckoutScreen extends StatefulWidget {
@@ -354,7 +355,8 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
             _customer = refreshed;
           });
         }
-        // Show post-payment survey
+        // Show receipt print dialog, then post-payment survey
+        if (mounted) await _showReceiptDialog(paid);
         if (mounted) await _showPostPaymentSurvey(paid);
         return;
       }
@@ -363,8 +365,19 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
     if (mounted) {
       setState(() => _transaction = paid);
       _showSuccess('Transaction marked as paid!');
+      await _showReceiptDialog(paid);
       await _showPostPaymentSurvey(paid);
     }
+  }
+
+  /// Shows the receipt print dialog after a transaction is marked paid.
+  Future<void> _showReceiptDialog(Transaction paidTransaction) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ReceiptPrintDialog(transaction: paidTransaction),
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────

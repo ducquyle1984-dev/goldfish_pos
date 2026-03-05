@@ -1,5 +1,4 @@
 ﻿import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:goldfish_pos/models/cash_drawer_settings_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/services/cash_drawer_service.dart';
@@ -70,8 +69,9 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
       if (mounted) {
         setState(() {
           _bridgeOnline = res.statusCode == 200;
-          if (res.statusCode != 200)
+          if (res.statusCode != 200) {
             _bridgeError = 'Server returned status ${res.statusCode}';
+          }
         });
       }
     } catch (e) {
@@ -700,6 +700,43 @@ def open_drawer():
         return False, str(e)
 
 
+def print_receipt(data):
+    try:
+        import win32print
+        ESC=0x1B; GS=0x1D
+        INIT=bytes([ESC,0x40]); LEFT=bytes([ESC,0x61,0x00]); CTR=bytes([ESC,0x61,0x01])
+        RIGHT=bytes([ESC,0x61,0x02]); BON=bytes([ESC,0x45,0x01]); BOFF=bytes([ESC,0x45,0x00])
+        SZ1=bytes([GS,0x21,0x00]); SZ2=bytes([GS,0x21,0x11]); LF=b'\n'
+        CUT=bytes([GS,0x56,0x41,0x00]); SEP=('-'*42)
+        printer = data.get('printer') or PRINTER_NAME or win32print.GetDefaultPrinter()
+        out = bytearray(INIT)
+        for line in data.get('lines', []):
+            if line.get('cut'): out += CUT; continue
+            if line.get('separator'): out += LEFT+SZ1+BOFF+SEP.encode('ascii')+LF; continue
+            a = line.get('align','left')
+            out += CTR if a=='center' else (RIGHT if a=='right' else LEFT)
+            out += SZ2 if line.get('size',1)>=2 else SZ1
+            out += BON if line.get('bold') else BOFF
+            out += line.get('text','').encode('utf-8','replace')+LF
+        out += LEFT+SZ1+BOFF
+        h = win32print.OpenPrinter(printer)
+        try:
+            win32print.StartDocPrinter(h, 1, ('Receipt', None, 'RAW'))
+            try:
+                win32print.StartPagePrinter(h)
+                win32print.WritePrinter(h, bytes(out))
+                win32print.EndPagePrinter(h)
+            finally:
+                win32print.EndDocPrinter(h)
+        finally:
+            win32print.ClosePrinter(h)
+        log.info('Receipt printed OK on %s', printer)
+        return True, 'ok'
+    except Exception as e:
+        log.error('print_receipt: %s', e)
+        return False, str(e)
+
+
 class _H(BaseHTTPRequestHandler):
     def log_message(self, fmt, *a): log.debug(fmt, *a)
     def _cors(self):
@@ -720,6 +757,17 @@ class _H(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == '/open-drawer':
             ok, msg = open_drawer()
+            body = json.dumps({'ok': ok, 'message': msg}).encode()
+            self.send_response(200 if ok else 500); self._cors()
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers(); self.wfile.write(body)
+        elif self.path == '/print':
+            length = int(self.headers.get('Content-Length', 0))
+            raw = self.rfile.read(length)
+            try: data = json.loads(raw)
+            except: self.send_response(400); self.end_headers(); return
+            ok, msg = print_receipt(data)
             body = json.dumps({'ok': ok, 'message': msg}).encode()
             self.send_response(200 if ok else 500); self._cors()
             self.send_header('Content-Type', 'application/json')

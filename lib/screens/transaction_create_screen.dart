@@ -8,6 +8,7 @@ import 'package:goldfish_pos/models/transaction_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/services/cash_drawer_service.dart';
 import 'package:goldfish_pos/widgets/customer_check_in_dialog.dart';
+import 'package:goldfish_pos/widgets/receipt_print_dialog.dart';
 
 // ---------------------------------------------------------------------------
 // Local draft line‑item (not the Firestore model)
@@ -464,7 +465,15 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
       final isPaid = status == TransactionStatus.paid;
       if (isPaid) {
         _snack('Transaction completed.');
-        Navigator.of(context).pop();
+        // Show receipt print dialog before returning to the home screen
+        if (mounted) {
+          await showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => ReceiptPrintDialog(transaction: tx),
+          );
+        }
+        if (mounted) Navigator.of(context).pop();
       } else if (asPending) {
         _snack('Transaction saved.');
         Navigator.of(context).pop();

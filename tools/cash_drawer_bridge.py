@@ -78,6 +78,89 @@ def open_drawer():
         return False, str(exc)
 
 
+def print_receipt(data: dict):
+    """
+    Encode and print a receipt from a list of line-command objects.
+
+    Each element of data['lines'] may be:
+      {"text": "...", "align": "center"|"left"|"right", "bold": true, "size": 1|2}
+      {"separator": true}   → prints a dashed rule
+      {"cut": true}         → sends the paper cut command
+    """
+    try:
+        import win32print  # type: ignore[import]
+        import win32con     # type: ignore[import]
+
+        printer_name = data.get('printer') or PRINTER_NAME or win32print.GetDefaultPrinter()
+
+        # ── ESC/POS byte sequences ────────────────────────────────────────
+        ESC   = 0x1B
+        GS    = 0x1D
+        INIT  = bytes([ESC, 0x40])           # Initialize
+        LEFT  = bytes([ESC, 0x61, 0x00])     # Align left
+        CTR   = bytes([ESC, 0x61, 0x01])     # Align center
+        RIGHT = bytes([ESC, 0x61, 0x02])     # Align right
+        BON   = bytes([ESC, 0x45, 0x01])     # Bold on
+        BOFF  = bytes([ESC, 0x45, 0x00])     # Bold off
+        SZ1   = bytes([GS, 0x21, 0x00])      # Normal size
+        SZ2   = bytes([GS, 0x21, 0x11])      # Double width + height
+        LF    = b'\n'
+        CUT   = bytes([GS, 0x56, 0x41, 0x00])  # Partial cut
+        SEPARATOR = '-' * 42
+
+        output = bytearray(INIT)
+
+        for line in data.get('lines', []):
+            if line.get('cut'):
+                output += CUT
+                continue
+            if line.get('separator'):
+                output += LEFT + SZ1 + BOFF
+                output += SEPARATOR.encode('ascii') + LF
+                continue
+
+            # Alignment
+            align = line.get('align', 'left')
+            if align == 'center':
+                output += CTR
+            elif align == 'right':
+                output += RIGHT
+            else:
+                output += LEFT
+
+            # Size
+            size = line.get('size', 1)
+            output += SZ2 if size >= 2 else SZ1
+
+            # Bold
+            output += BON if line.get('bold') else BOFF
+
+            # Text content
+            text = line.get('text', '')
+            output += text.encode('utf-8', errors='replace') + LF
+
+        # Reset printer state after printing
+        output += LEFT + SZ1 + BOFF
+
+        handle = win32print.OpenPrinter(printer_name)
+        try:
+            win32print.StartDocPrinter(handle, 1, ("Receipt", None, "RAW"))
+            try:
+                win32print.StartPagePrinter(handle)
+                win32print.WritePrinter(handle, bytes(output))
+                win32print.EndPagePrinter(handle)
+            finally:
+                win32print.EndDocPrinter(handle)
+        finally:
+            win32print.ClosePrinter(handle)
+
+        log.info('Receipt printed OK on %s', printer_name)
+        return True, "ok"
+    except Exception as exc:
+        log.error('print_receipt failed: %s', exc)
+        return False, str(exc)
+
+
 class _Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         log.info(fmt, *args)
@@ -113,6 +196,23 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == '/open-drawer':
             ok, msg = open_drawer()
+            body = json.dumps({'ok': ok, 'message': msg}).encode()
+            self.send_response(200 if ok else 500)
+            self._cors()
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == '/print':
+            length = int(self.headers.get('Content-Length', 0))
+            raw = self.rfile.read(length)
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                return
+            ok, msg = print_receipt(data)
             body = json.dumps({'ok': ok, 'message': msg}).encode()
             self.send_response(200 if ok else 500)
             self._cors()

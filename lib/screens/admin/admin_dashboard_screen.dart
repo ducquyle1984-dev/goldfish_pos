@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/screens/admin/booking_settings_screen.dart';
+import 'package:goldfish_pos/screens/admin/business_settings_screen.dart';
 import 'package:goldfish_pos/screens/admin/cash_drawer_settings_screen.dart';
 import 'package:goldfish_pos/screens/admin/customer_feedback_screen.dart';
 import 'package:goldfish_pos/screens/admin/customer_management_screen.dart';
@@ -131,6 +132,17 @@ class AdminDashboardScreen extends StatelessWidget {
               crossAxisSpacing: 12,
               childAspectRatio: 1.1,
               children: [
+                _AdminCard(
+                  title: 'Business Info',
+                  icon: Icons.storefront_outlined,
+                  color: Colors.deepPurple,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const BusinessSettingsScreen(),
+                    ),
+                  ),
+                ),
                 _AdminCard(
                   title: 'Employees',
                   icon: Icons.people,

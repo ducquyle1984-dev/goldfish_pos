@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart' hide Transaction;
 import 'package:flutter/foundation.dart';
 import 'package:goldfish_pos/models/appointment_model.dart';
 import 'package:goldfish_pos/models/booking_settings_model.dart';
+import 'package:goldfish_pos/models/business_settings_model.dart';
 import 'package:goldfish_pos/models/cash_drawer_settings_model.dart';
 import 'package:goldfish_pos/models/item_category_model.dart';
 import 'package:goldfish_pos/models/item_model.dart';
@@ -869,6 +870,31 @@ class PosRepository {
       }, SetOptions(merge: true));
     } catch (e) {
       throw Exception('Failed to save admin PIN: $e');
+    }
+  }
+
+  // ==================== Business Settings ====================
+
+  /// Returns the salon's business information (name, address, phone, tax).
+  Future<BusinessSettings> getBusinessSettings() async {
+    try {
+      final doc = await _firestore.collection('settings').doc('business').get();
+      if (doc.exists) return BusinessSettings.fromFirestore(doc);
+      return const BusinessSettings();
+    } catch (e) {
+      return const BusinessSettings();
+    }
+  }
+
+  /// Saves (merges) business settings to Firestore.
+  Future<void> saveBusinessSettings(BusinessSettings settings) async {
+    try {
+      await _firestore
+          .collection('settings')
+          .doc('business')
+          .set(settings.toFirestore(), SetOptions(merge: true));
+    } catch (e) {
+      throw Exception('Failed to save business settings: $e');
     }
   }
 }
