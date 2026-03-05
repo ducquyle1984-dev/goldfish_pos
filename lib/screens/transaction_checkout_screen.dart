@@ -123,11 +123,24 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
         await _markAsPaid();
       }
 
-      _paymentAmountController.clear();
-      setState(() => _selectedPaymentMethodId = null);
+      // Capture before clearing selection — setState triggers a rebuild
+      // which can lose the reference if the StreamBuilder re-emits.
+      final paidWithMethod = _selectedPaymentMethod;
 
-      // Open cash drawer if this is a cash payment
-      if (_selectedPaymentMethod?.isCash == true) {
+      _paymentAmountController.clear();
+      setState(() {
+        _selectedPaymentMethodId = null;
+        _selectedPaymentMethod = null;
+        _selectedPaymentMethodName = null;
+      });
+
+      // Open cash drawer if this is a cash payment.
+      // Check isCash flag first; fall back to name matching in case the flag
+      // was not set on the Firestore payment method.
+      final isCashPayment =
+          paidWithMethod?.isCash == true ||
+          (paidWithMethod?.merchantName.toLowerCase().contains('cash') == true);
+      if (isCashPayment) {
         _openDrawerIfCash();
       }
 

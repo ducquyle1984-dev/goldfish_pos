@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -15,18 +16,83 @@ import 'screens/customer_booking_screen.dart';
 import 'utils/platform_utils.dart';
 
 Future<void> main() async {
+  await runZonedGuarded(_boot, _onError);
+}
+
+Future<void> _boot() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Load theme preference synchronously (fast, local storage).
-  final themeProvider = await ThemeProvider.load();
-  // Call runApp immediately so Flutter renders a first frame and the HTML
-  // loading spinner is dismissed. Firebase is initialised inside the widget
-  // tree via AppInitializer, so a slow / failing network never blocks startup.
+
+  // Catch Flutter framework errors (widget build failures, etc.)
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    _showErrorOverlay(details.exceptionAsString());
+  };
+
+  // Load theme preference (local storage).
+  ThemeProvider themeProvider;
+  try {
+    themeProvider = await ThemeProvider.load();
+  } catch (e) {
+    themeProvider = ThemeProvider(true);
+  }
+
   runApp(
     ChangeNotifierProvider.value(
       value: themeProvider,
       child: const AppInitializer(),
     ),
   );
+}
+
+// Catches all uncaught async errors in the zone.
+void _onError(Object error, StackTrace stack) {
+  debugPrint('FATAL: $error\n$stack');
+  _showErrorOverlay(error.toString());
+}
+
+void _showErrorOverlay(String message) {
+  // Only show in release on web so developers still get the full red-screen
+  // in debug mode. The overlay replaces the white screen with readable text.
+  if (!kIsWeb) return;
+  try {
+    final key = GlobalKey();
+    runApp(MaterialApp(
+      key: key,
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: const Color(0xFF0D2B45),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+                const SizedBox(height: 16),
+                const Text(
+                  'Something went wrong',
+                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Please refresh the page (F5 or Ctrl+Shift+R).',
+                  style: TextStyle(color: Colors.orange, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ));
+  } catch (_) {
+    // If even the error overlay crashes, there is nothing more we can do.
+  }
 }
 
 /// Initialises Firebase then hands off to [MyApp].

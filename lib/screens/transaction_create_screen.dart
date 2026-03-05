@@ -6,6 +6,7 @@ import 'package:goldfish_pos/models/item_model.dart';
 import 'package:goldfish_pos/models/payment_method_model.dart';
 import 'package:goldfish_pos/models/transaction_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
+import 'package:goldfish_pos/services/cash_drawer_service.dart';
 import 'package:goldfish_pos/widgets/customer_check_in_dialog.dart';
 
 // ---------------------------------------------------------------------------
@@ -1226,6 +1227,11 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
 
     // Save – status is auto-determined by balance
     await _saveTransaction(asPending: false);
+
+    // Open cash drawer for cash payments
+    if (_checkoutTab == _CheckoutTab.cash) {
+      CashDrawerService().openDrawerOnCashPayment();
+    }
   }
 
   Widget _payTabBtn({

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+// On web, uses window.localStorage directly (no plugin channel → no
+// MissingPluginException).  On native, uses shared_preferences as usual.
+import '../utils/theme_storage_native.dart'
+    if (dart.library.html) '../utils/theme_storage_web.dart';
 
 /// Persists and exposes the active theme choice.
 /// [useWaterTheme] = true  → dark deep-water theme (default)
 /// [useWaterTheme] = false → light standard Material theme
 class ThemeProvider extends ChangeNotifier {
-  static const _key = 'use_water_theme';
-
   bool _useWaterTheme = true;
 
   bool get useWaterTheme => _useWaterTheme;
@@ -19,14 +21,20 @@ class ThemeProvider extends ChangeNotifier {
   void _set(bool value) async {
     _useWaterTheme = value;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_key, value);
+    try {
+      await saveThemePreference(value);
+    } catch (_) {
+      // Persist failure is non-fatal — theme still switches for this session.
+    }
   }
 
   /// Load saved preference (call once at startup before runApp).
   static Future<ThemeProvider> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getBool(_key) ?? true; // default = water theme ON
-    return ThemeProvider(saved);
+    try {
+      final saved = await loadThemePreference();
+      return ThemeProvider(saved ?? true); // default = water theme ON
+    } catch (_) {
+      return ThemeProvider(true);
+    }
   }
 }
