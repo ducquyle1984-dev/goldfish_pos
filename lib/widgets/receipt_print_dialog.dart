@@ -227,8 +227,8 @@ class _ReceiptPrintDialogState extends State<ReceiptPrintDialog> {
                                         _previewText(),
                                         style: const TextStyle(
                                           fontFamily: 'Courier New',
-                                          fontSize: 11,
-                                          height: 1.4,
+                                          fontSize: 14,
+                                          height: 1.5,
                                           color: Colors.black87,
                                         ),
                                       ),

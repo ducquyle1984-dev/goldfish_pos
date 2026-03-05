@@ -1234,13 +1234,14 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
       _otherNoteCtrl.clear();
     });
 
-    // Save – status is auto-determined by balance
-    await _saveTransaction(asPending: false);
-
-    // Open cash drawer for cash payments
+    // Open cash drawer immediately — before the receipt dialog so the
+    // drawer is ready as the cashier collects payment.
     if (_checkoutTab == _CheckoutTab.cash) {
       CashDrawerService().openDrawerOnCashPayment();
     }
+
+    // Save – status is auto-determined by balance
+    await _saveTransaction(asPending: false);
   }
 
   Widget _payTabBtn({

@@ -120,9 +120,6 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
 
       // If fully paid, mark as paid (and award reward points)
       final wasFullyPaid = _transaction.isFullyPaid;
-      if (wasFullyPaid) {
-        await _markAsPaid();
-      }
 
       // Capture before clearing selection — setState triggers a rebuild
       // which can lose the reference if the StreamBuilder re-emits.
@@ -135,14 +132,17 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
         _selectedPaymentMethodName = null;
       });
 
-      // Open cash drawer if this is a cash payment.
-      // Check isCash flag first; fall back to name matching in case the flag
-      // was not set on the Firestore payment method.
+      // Open cash drawer immediately — before the receipt dialog so the
+      // drawer is already open when the cashier hands change to the customer.
       final isCashPayment =
           paidWithMethod?.isCash == true ||
           (paidWithMethod?.merchantName.toLowerCase().contains('cash') == true);
       if (isCashPayment) {
         _openDrawerIfCash();
+      }
+
+      if (wasFullyPaid) {
+        await _markAsPaid();
       }
 
       if (!wasFullyPaid && mounted) {

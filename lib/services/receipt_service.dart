@@ -312,7 +312,10 @@ class ReceiptService {
       return decoded['message']?.toString() ??
           'Bridge returned ${response.statusCode}';
     } catch (e) {
-      return 'Could not reach bridge at $url — is it running?';
+      return 'Could not reach the bridge at $url.\n'
+          'Make sure the bridge helper is running. '
+          'If it was installed before today, reinstall it from '
+          'Admin → Cash Drawer so it gets the receipt-printing update.';
     }
   }
 }
