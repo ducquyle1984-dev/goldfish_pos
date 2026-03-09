@@ -1382,18 +1382,80 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
             const SizedBox(height: 16),
           ],
 
-          // ── Gift Card payment ─────────────────────────────────────────
-          if (balance > 0) ...[
-            _buildSectionHeader(Icons.card_giftcard_outlined, 'Gift Card'),
-            const SizedBox(height: 8),
-            Card(
-              color: Colors.teal.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Card ID lookup row
+          _buildSectionHeader(Icons.payment_outlined, 'Add Payment'),
+          const SizedBox(height: 8),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  // Payment method dropdown
+                  StreamBuilder(
+                    stream: _repo.getPaymentMethods(),
+                    builder: (context, snapshot) {
+                      final methods = snapshot.data ?? [];
+                      // Keep cached list for lookup
+                      if (methods.isNotEmpty) _paymentMethods = methods;
+                      return DropdownButtonFormField<String>(
+                        value: _selectedPaymentMethodId,
+                        decoration: const InputDecoration(
+                          labelText: 'Payment Method',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: [
+                          const DropdownMenuItem(
+                            value: '__gift_card__',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.card_giftcard,
+                                  size: 16,
+                                  color: Colors.teal,
+                                ),
+                                SizedBox(width: 6),
+                                Text('Gift Card'),
+                              ],
+                            ),
+                          ),
+                          ..._paymentMethods.map(
+                            (m) => DropdownMenuItem(
+                              value: m.id,
+                              child: Row(
+                                children: [
+                                  if (m.processorType ==
+                                      PaymentProcessorType.helcim)
+                                    const Padding(
+                                      padding: EdgeInsets.only(right: 6),
+                                      child: Icon(Icons.credit_card, size: 16),
+                                    ),
+                                  Text(m.merchantName),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                        onChanged: (val) {
+                          if (val == null) return;
+                          final found = _paymentMethods
+                              .where((m) => m.id == val)
+                              .firstOrNull;
+                          setState(() {
+                            _selectedPaymentMethodId = val;
+                            _selectedPaymentMethodName = found?.merchantName;
+                            _selectedPaymentMethod = found;
+                            if (val != '__gift_card__') {
+                              _lookedUpGiftCard = null;
+                              _giftCardIdCtrl.clear();
+                              _giftCardAmountCtrl.clear();
+                            }
+                          });
+                        },
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  // ── Gift Card selected: show card lookup UI ──────────
+                  if (_selectedPaymentMethodId == '__gift_card__') ...[
                     Row(
                       children: [
                         Expanded(
@@ -1433,7 +1495,6 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
                         ),
                       ],
                     ),
-                    // Card found – show details + amount input
                     if (_lookedUpGiftCard != null) ...[
                       const SizedBox(height: 10),
                       Container(
@@ -1508,102 +1569,42 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
                               ),
                             ),
                             onPressed: _isSaving ? null : _applyGiftCardPayment,
-                            child: const Text('Apply'),
+                            child: const Text('Apply Gift Card'),
                           ),
                         ],
                       ),
                     ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-
-          _buildSectionHeader(Icons.payment_outlined, 'Add Payment'),
-          const SizedBox(height: 8),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  // Payment method dropdown
-                  StreamBuilder(
-                    stream: _repo.getPaymentMethods(),
-                    builder: (context, snapshot) {
-                      final methods = snapshot.data ?? [];
-                      // Keep cached list for lookup
-                      if (methods.isNotEmpty) _paymentMethods = methods;
-                      return DropdownButtonFormField<String>(
-                        value: _selectedPaymentMethodId,
-                        decoration: const InputDecoration(
-                          labelText: 'Payment Method',
-                          border: OutlineInputBorder(),
+                  ] else ...[
+                    // ── Standard payment amount + button ─────────────────
+                    TextField(
+                      controller: _paymentAmountController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Amount',
+                        prefixText: '\$',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: TextButton(
+                          onPressed: () => _paymentAmountController.text =
+                              balance.toStringAsFixed(2),
+                          child: const Text('Exact'),
                         ),
-                        items: _paymentMethods
-                            .map(
-                              (m) => DropdownMenuItem(
-                                value: m.id,
-                                child: Row(
-                                  children: [
-                                    if (m.processorType ==
-                                        PaymentProcessorType.helcim)
-                                      const Padding(
-                                        padding: EdgeInsets.only(right: 6),
-                                        child: Icon(
-                                          Icons.credit_card,
-                                          size: 16,
-                                        ),
-                                      ),
-                                    Text(m.merchantName),
-                                  ],
-                                ),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (val) {
-                          if (val == null) return;
-                          final found = _paymentMethods
-                              .where((m) => m.id == val)
-                              .firstOrNull;
-                          setState(() {
-                            _selectedPaymentMethodId = val;
-                            _selectedPaymentMethodName = found?.merchantName;
-                            _selectedPaymentMethod = found;
-                          });
-                        },
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _paymentAmountController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: InputDecoration(
-                      labelText: 'Amount',
-                      prefixText: '\$',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: TextButton(
-                        onPressed: () => _paymentAmountController.text = balance
-                            .toStringAsFixed(2),
-                        child: const Text('Exact'),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.check_circle_outline),
-                      label: const Text('Apply Payment'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.check_circle_outline),
+                        label: const Text('Apply Payment'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        onPressed: _addPayment,
                       ),
-                      onPressed: _addPayment,
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
