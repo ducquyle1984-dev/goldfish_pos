@@ -28,9 +28,6 @@
     <title>Goldfish POS</title>
     <link rel="manifest" href="manifest.json" />
 
-    <!-- Preload the main Flutter JS bundle so it downloads in parallel
-         with parsing instead of waiting for flutter_bootstrap.js to request it -->
-    <link rel="preload" href="main.dart.js" as="script" />
     <!-- DNS prefetch for Firebase services hit at startup -->
     <link rel="dns-prefetch" href="https://firestore.googleapis.com" />
     <link rel="dns-prefetch" href="https://identitytoolkit.googleapis.com" />
@@ -308,7 +305,7 @@
       // â”€â”€ Build version: bump this string on every deploy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       // On a version mismatch we unregister all service workers, wipe every
       // cache, and do a single hard-reload so the browser fetches fresh assets.
-      var BUILD_VERSION = "2026-03-09-v3";
+      var BUILD_VERSION = "2026-03-09-v4";
       var storedVersion = localStorage.getItem("gfpos_build");
 
       if (storedVersion !== BUILD_VERSION) {
@@ -394,6 +391,17 @@
       setTimeout(dismissLoading, 15000);
     </script>
 
-    <script src="flutter_bootstrap.js" async></script>
+    <script>
+      // Load flutter_bootstrap with the BUILD_VERSION as a query string.
+      // This busts any old service worker cache that has the unversioned URL
+      // stored — a new version query causes a SW cache miss and forces a fresh
+      // network fetch, guaranteeing the updated app is loaded on every deploy.
+      (function () {
+        var s = document.createElement('script');
+        s.src = 'flutter_bootstrap.js?v=' + BUILD_VERSION;
+        s.async = true;
+        document.body.appendChild(s);
+      })();
+    </script>
   </body>
 </html>
