@@ -857,6 +857,254 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // REDEEM GIFT CARD DIALOG (triggered from AppBar — always reachable)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Future<void> _showRedeemGiftCardDialog() async {
+    final cardIdCtrl = TextEditingController();
+    final amountCtrl = TextEditingController();
+
+    final applied = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        GiftCard? foundCard;
+        String? error;
+        bool busy = false;
+        bool looking = false;
+
+        return StatefulBuilder(
+          builder: (ctx, setDlg) {
+            final balance = _transaction.balanceRemaining;
+
+            Future<void> lookUp() async {
+              final cardId = cardIdCtrl.text.trim();
+              if (cardId.isEmpty) {
+                setDlg(() => error = 'Please enter a gift card ID.');
+                return;
+              }
+              setDlg(() {
+                looking = true;
+                error = null;
+                foundCard = null;
+              });
+              try {
+                final card = await _repo.getGiftCardByCardId(cardId);
+                if (!ctx.mounted) return;
+                if (card == null) {
+                  setDlg(() { looking = false; error = 'Card "$cardId" not found.'; });
+                } else if (!card.isActive) {
+                  setDlg(() { looking = false; error = 'Card "$cardId" is inactive.'; });
+                } else if (card.isExpired) {
+                  setDlg(() { looking = false; error = 'Card "$cardId" has expired.'; });
+                } else if (card.balance <= 0) {
+                  setDlg(() { looking = false; error = 'Card "$cardId" has no remaining balance.'; });
+                } else {
+                  final defaultAmount = card.balance.clamp(0.0, balance);
+                  setDlg(() {
+                    looking = false;
+                    foundCard = card;
+                    amountCtrl.text = defaultAmount.toStringAsFixed(2);
+                  });
+                }
+              } catch (e) {
+                if (ctx.mounted) setDlg(() { looking = false; error = 'Lookup failed: $e'; });
+              }
+            }
+
+            Future<void> apply() async {
+              final card = foundCard;
+              if (card == null) {
+                setDlg(() => error = 'Please look up a valid gift card first.');
+                return;
+              }
+              final amount = double.tryParse(amountCtrl.text);
+              if (amount == null || amount <= 0) {
+                setDlg(() => error = 'Please enter a valid amount.');
+                return;
+              }
+              if (amount > card.balance + 0.001) {
+                setDlg(() => error = 'Amount exceeds card balance (\$${card.balance.toStringAsFixed(2)}).');
+                return;
+              }
+              setDlg(() { busy = true; error = null; });
+              try {
+                await _repo.deductFromGiftCard(
+                  card.id,
+                  amount,
+                  transactionId: _transaction.id,
+                  note: 'Redeemed at POS',
+                );
+                final payment = Payment(
+                  paymentMethodId: 'gift_card:${card.cardId}',
+                  paymentMethodName: 'Gift Card (${card.cardId})',
+                  amountPaid: amount,
+                  paymentDate: DateTime.now(),
+                );
+                await _repo.addPaymentToTransaction(_transaction.id, payment);
+                if (ctx.mounted) Navigator.pop(ctx, true);
+              } catch (e) {
+                if (ctx.mounted) setDlg(() { busy = false; error = 'Failed: $e'; });
+              }
+            }
+
+            return AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.card_giftcard, color: Colors.teal),
+                  SizedBox(width: 8),
+                  Text('Pay with Gift Card'),
+                ],
+              ),
+              content: SizedBox(
+                width: 380,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (error != null)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.red.shade200),
+                          ),
+                          child: Text(error!, style: TextStyle(color: Colors.red.shade700)),
+                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: cardIdCtrl,
+                              textCapitalization: TextCapitalization.characters,
+                              autofocus: true,
+                              decoration: const InputDecoration(
+                                labelText: 'Gift Card ID',
+                                hintText: 'e.g. GC-001234',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.credit_card),
+                              ),
+                              onSubmitted: (_) => lookUp(),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.teal,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
+                            ),
+                            onPressed: (busy || looking) ? null : lookUp,
+                            child: looking
+                                ? const SizedBox(
+                                    width: 18, height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Text('Look Up'),
+                          ),
+                        ],
+                      ),
+                      if (foundCard != null) ..[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.teal.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.check_circle, color: Colors.teal, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Balance: \$${foundCard!.balance.toStringAsFixed(2)}'
+                                  '${foundCard!.expiresAt != null ? ' · Expires ${foundCard!.expiresAt!.month}/${foundCard!.expiresAt!.day}/${foundCard!.expiresAt!.year}' : ''}',
+                                  style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.teal),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: amountCtrl,
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: InputDecoration(
+                                  labelText: 'Amount to Apply',
+                                  prefixText: '\$',
+                                  border: const OutlineInputBorder(),
+                                  suffixIcon: TextButton(
+                                    onPressed: () {
+                                      final max = foundCard!.balance.clamp(0.0, balance);
+                                      amountCtrl.text = max.toStringAsFixed(2);
+                                    },
+                                    child: const Text('Max'),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.teal,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                              ),
+                              onPressed: busy ? null : apply,
+                              child: busy
+                                  ? const SizedBox(
+                                      width: 18, height: 18,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Text('Apply'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: busy ? null : () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    cardIdCtrl.dispose();
+    amountCtrl.dispose();
+
+    if (applied == true && mounted) {
+      final updated = await _repo.getTransaction(_transaction.id);
+      if (updated != null) setState(() => _transaction = updated);
+      if (_transaction.isFullyPaid) {
+        await _markAsPaid();
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Gift card payment applied successfully.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // GIFT CARD PAYMENT FLOW (redeem an existing card toward this transaction)
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -1077,6 +1325,16 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
         ),
         actions: [
           if (!isPaid && !isVoided) ...[
+            FilledButton.icon(
+              icon: const Icon(Icons.redeem, size: 18),
+              label: const Text('Redeem Gift Card'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.teal.shade700,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: _isSaving ? null : _showRedeemGiftCardDialog,
+            ),
+            const SizedBox(width: 8),
             FilledButton.icon(
               icon: const Icon(Icons.add_card, size: 18),
               label: const Text('Sell Gift Card'),
