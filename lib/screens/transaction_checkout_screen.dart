@@ -94,6 +94,10 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
   }
 
   Future<void> _addPayment() async {
+    if (_selectedPaymentMethodId == '__gift_card__') {
+      await _applyGiftCardPayment();
+      return;
+    }
     final amount = double.tryParse(_paymentAmountController.text);
     if (amount == null || amount <= 0) {
       _showError('Please enter a valid payment amount.');
@@ -1534,7 +1538,7 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-                  // Payment method dropdown
+                  // Payment method dropdown (Gift Card is always first)
                   StreamBuilder(
                     stream: _repo.getPaymentMethods(),
                     builder: (context, snapshot) {
@@ -1546,27 +1550,44 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
                           labelText: 'Payment Method',
                           border: OutlineInputBorder(),
                         ),
-                        items: _paymentMethods
-                            .map(
-                              (m) => DropdownMenuItem(
-                                value: m.id,
-                                child: Row(
-                                  children: [
-                                    if (m.processorType ==
-                                        PaymentProcessorType.helcim)
-                                      const Padding(
-                                        padding: EdgeInsets.only(right: 6),
-                                        child: Icon(
-                                          Icons.credit_card,
-                                          size: 16,
-                                        ),
-                                      ),
-                                    Text(m.merchantName),
-                                  ],
+                        items: [
+                          // Gift Card — always first in the list
+                          const DropdownMenuItem(
+                            value: '__gift_card__',
+                            child: Row(
+                              children: [
+                                Padding(
+                                  padding: EdgeInsets.only(right: 6),
+                                  child: Icon(
+                                    Icons.card_giftcard,
+                                    size: 16,
+                                    color: Colors.teal,
+                                  ),
                                 ),
+                                Text(
+                                  'Gift Card',
+                                  style: TextStyle(color: Colors.teal),
+                                ),
+                              ],
+                            ),
+                          ),
+                          ..._paymentMethods.map(
+                            (m) => DropdownMenuItem(
+                              value: m.id,
+                              child: Row(
+                                children: [
+                                  if (m.processorType ==
+                                      PaymentProcessorType.helcim)
+                                    const Padding(
+                                      padding: EdgeInsets.only(right: 6),
+                                      child: Icon(Icons.credit_card, size: 16),
+                                    ),
+                                  Text(m.merchantName),
+                                ],
                               ),
-                            )
-                            .toList(),
+                            ),
+                          ),
+                        ],
                         onChanged: (val) {
                           if (val == null) return;
                           final found = _paymentMethods
@@ -1576,40 +1597,176 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
                             _selectedPaymentMethodId = val;
                             _selectedPaymentMethodName = found?.merchantName;
                             _selectedPaymentMethod = found;
+                            // Clear gift card state when switching away
+                            if (val != '__gift_card__') {
+                              _lookedUpGiftCard = null;
+                              _giftCardIdCtrl.clear();
+                              _giftCardAmountCtrl.clear();
+                            }
                           });
                         },
                       );
                     },
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: _paymentAmountController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
+
+                  // ── When Gift Card is selected: show lookup UI ──────────
+                  if (_selectedPaymentMethodId == '__gift_card__') ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _giftCardIdCtrl,
+                            textCapitalization: TextCapitalization.characters,
+                            decoration: const InputDecoration(
+                              labelText: 'Gift Card ID',
+                              hintText: 'e.g. GC-001234',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                              prefixIcon: Icon(Icons.credit_card, size: 18),
+                            ),
+                            onSubmitted: (_) => _lookUpGiftCard(),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.teal,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 14,
+                              horizontal: 14,
+                            ),
+                          ),
+                          onPressed: (_isSaving || _isLookingUpCard)
+                              ? null
+                              : _lookUpGiftCard,
+                          child: _isLookingUpCard
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text('Look Up'),
+                        ),
+                      ],
                     ),
-                    decoration: InputDecoration(
-                      labelText: 'Amount',
-                      prefixText: '\$',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: TextButton(
-                        onPressed: () => _paymentAmountController.text = balance
-                            .toStringAsFixed(2),
-                        child: const Text('Exact'),
+                    if (_lookedUpGiftCard != null) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.teal.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.check_circle,
+                              color: Colors.teal,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Balance: \$${_lookedUpGiftCard!.balance.toStringAsFixed(2)}'
+                                '${_lookedUpGiftCard!.expiresAt != null ? ' · Expires ${_lookedUpGiftCard!.expiresAt!.month}/${_lookedUpGiftCard!.expiresAt!.day}/${_lookedUpGiftCard!.expiresAt!.year}' : ''}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.teal,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () =>
+                                  setState(() => _lookedUpGiftCard = null),
+                              child: const Text('Clear'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _giftCardAmountCtrl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: InputDecoration(
+                                labelText: 'Amount to Apply',
+                                prefixText: '\$',
+                                border: const OutlineInputBorder(),
+                                isDense: true,
+                                suffixIcon: TextButton(
+                                  onPressed: () {
+                                    final max = _lookedUpGiftCard!.balance
+                                        .clamp(0.0, balance);
+                                    _giftCardAmountCtrl.text = max
+                                        .toStringAsFixed(2);
+                                  },
+                                  child: const Text('Max'),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            height: 48,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.teal,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                ),
+                              ),
+                              onPressed: _isSaving
+                                  ? null
+                                  : _applyGiftCardPayment,
+                              child: const Text('Apply Gift Card'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ] else ...[
+                    // ── Standard amount field for Cash/Credit/etc ──────────
+                    TextField(
+                      controller: _paymentAmountController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Amount',
+                        prefixText: '\$',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: TextButton(
+                          onPressed: () => _paymentAmountController.text =
+                              balance.toStringAsFixed(2),
+                          child: const Text('Exact'),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.check_circle_outline),
-                      label: const Text('Apply Payment'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.check_circle_outline),
+                        label: const Text('Apply Payment'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        onPressed: _addPayment,
                       ),
-                      onPressed: _addPayment,
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
