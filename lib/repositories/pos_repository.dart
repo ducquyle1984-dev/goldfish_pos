@@ -1060,4 +1060,41 @@ class PosRepository {
       throw Exception('Failed to reactivate gift card: $e');
     }
   }
+
+  /// Adds a gift card sale as a line item to an existing transaction and
+  /// updates the transaction subtotal and totalAmount by [amount].
+  /// Gift cards are not taxed — only the sale amount is added.
+  Future<void> addGiftCardSaleToTransaction(
+    String transactionId,
+    TransactionItem item,
+    double amount,
+  ) async {
+    try {
+      final ref = _firestore.collection('transactions').doc(transactionId);
+      await _firestore.runTransaction((txn) async {
+        final snap = await txn.get(ref);
+        if (!snap.exists) throw Exception('Transaction not found.');
+        final data = snap.data()!;
+
+        final currentItems = List<Map<String, dynamic>>.from(
+          (data['items'] as List<dynamic>? ?? []).map(
+            (e) => Map<String, dynamic>.from(e as Map),
+          ),
+        );
+        currentItems.add(item.toJson());
+
+        final newSubtotal = (data['subtotal'] ?? 0).toDouble() + amount;
+        final newTotal = (data['totalAmount'] ?? 0).toDouble() + amount;
+
+        txn.update(ref, {
+          'items': currentItems,
+          'subtotal': newSubtotal,
+          'totalAmount': newTotal,
+          'updatedAt': Timestamp.now(),
+        });
+      });
+    } catch (e) {
+      throw Exception('Failed to add gift card sale to transaction: $e');
+    }
+  }
 }

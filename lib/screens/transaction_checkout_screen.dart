@@ -592,7 +592,268 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // GIFT CARD PAYMENT FLOW
+  // SELL GIFT CARD (issue a new card and add it to the bill)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Future<void> _showSellGiftCardDialog() async {
+    final cardIdCtrl = TextEditingController();
+    final amountCtrl = TextEditingController();
+    final notesCtrl = TextEditingController();
+    DateTime? expiresAt;
+    String? error;
+    bool busy = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.add_card, color: Colors.teal),
+              SizedBox(width: 8),
+              Text('Sell a Gift Card'),
+            ],
+          ),
+          content: SizedBox(
+            width: 380,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'This will issue a new gift card and add its value to the current transaction bill.',
+                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                  const SizedBox(height: 14),
+                  if (error != null)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Text(
+                        error!,
+                        style: TextStyle(color: Colors.red.shade700),
+                      ),
+                    ),
+                  TextField(
+                    controller: cardIdCtrl,
+                    textCapitalization: TextCapitalization.characters,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Card ID *',
+                      hintText: 'e.g. GC-001234',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.credit_card),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: amountCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Card Value *',
+                      prefixText: '\$',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.attach_money),
+                      helperText: 'Amount charged to customer & loaded on card',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          expiresAt == null
+                              ? 'No expiration date'
+                              : 'Expires: ${expiresAt!.month}/${expiresAt!.day}/${expiresAt!.year}',
+                          style: TextStyle(
+                            color: Colors.grey.shade700,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        icon: const Icon(Icons.calendar_today, size: 16),
+                        label: Text(
+                          expiresAt == null ? 'Set Expiry' : 'Change',
+                        ),
+                        onPressed: () async {
+                          final picked = await showDatePicker(
+                            context: ctx,
+                            initialDate: DateTime.now().add(
+                              const Duration(days: 365),
+                            ),
+                            firstDate: DateTime.now().add(
+                              const Duration(days: 1),
+                            ),
+                            lastDate: DateTime.now().add(
+                              const Duration(days: 365 * 10),
+                            ),
+                          );
+                          if (picked != null) setDlg(() => expiresAt = picked);
+                        },
+                      ),
+                      if (expiresAt != null)
+                        IconButton(
+                          icon: const Icon(Icons.clear, size: 16),
+                          tooltip: 'Remove expiry',
+                          onPressed: () => setDlg(() => expiresAt = null),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: notesCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Notes (optional)',
+                      hintText: 'e.g. customer name, occasion',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: busy ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              icon: busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.add_shopping_cart, size: 18),
+              label: Text(busy ? 'Adding...' : 'Issue & Add to Bill'),
+              onPressed: busy
+                  ? null
+                  : () async {
+                      final cardId = cardIdCtrl.text.trim();
+                      final amount = double.tryParse(amountCtrl.text.trim());
+
+                      if (cardId.isEmpty) {
+                        setDlg(() => error = 'Please enter a Card ID.');
+                        return;
+                      }
+                      if (amount == null || amount <= 0) {
+                        setDlg(
+                          () => error = 'Please enter a valid card value.',
+                        );
+                        return;
+                      }
+
+                      setDlg(() => busy = true);
+                      try {
+                        // Check for duplicate
+                        final existing = await _repo.getGiftCardByCardId(
+                          cardId,
+                        );
+                        if (existing != null) {
+                          setDlg(() {
+                            busy = false;
+                            error =
+                                'Card "$cardId" already exists. Use "Reload" in Gift Card admin to add balance.';
+                          });
+                          return;
+                        }
+
+                        final now = DateTime.now();
+
+                        // 1. Create the gift card in Firebase
+                        final card = GiftCard(
+                          id: '',
+                          cardId: cardId,
+                          balance: amount,
+                          loadedAmount: amount,
+                          issuedAt: now,
+                          expiresAt: expiresAt,
+                          isActive: true,
+                          notes: notesCtrl.text.trim().isEmpty
+                              ? null
+                              : notesCtrl.text.trim(),
+                          history: [
+                            GiftCardEntry(
+                              type: GiftCardEntryType.issued,
+                              amount: amount,
+                              date: now,
+                              transactionId: _transaction.id,
+                              note: 'Sold at POS',
+                            ),
+                          ],
+                          updatedAt: now,
+                        );
+                        await _repo.createGiftCard(card);
+
+                        // 2. Add it as a line item on the current transaction
+                        final item = TransactionItem(
+                          id: now.millisecondsSinceEpoch.toString(),
+                          itemId: 'gift_card_sale',
+                          itemName: 'Gift Card ($cardId)',
+                          employeeId: '',
+                          employeeName: 'Gift Card Sales',
+                          itemPrice: amount,
+                          quantity: 1,
+                          subtotal: amount,
+                        );
+                        await _repo.addGiftCardSaleToTransaction(
+                          _transaction.id,
+                          item,
+                          amount,
+                        );
+
+                        // 3. Reload transaction
+                        final updated = await _repo.getTransaction(
+                          _transaction.id,
+                        );
+                        if (mounted && updated != null) {
+                          setState(() => _transaction = updated);
+                        }
+
+                        if (ctx.mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Gift card $cardId (\$${amount.toStringAsFixed(2)}) issued and added to bill.',
+                              ),
+                              backgroundColor: Colors.teal,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        setDlg(() {
+                          busy = false;
+                          error = 'Failed: $e';
+                        });
+                      }
+                    },
+            ),
+          ],
+        ),
+      ),
+    );
+
+    cardIdCtrl.dispose();
+    amountCtrl.dispose();
+    notesCtrl.dispose();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GIFT CARD PAYMENT FLOW (redeem an existing card toward this transaction)
   // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> _lookUpGiftCard() async {
@@ -811,12 +1072,23 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
               : 'Transaction',
         ),
         actions: [
-          if (!isPaid && !isVoided)
+          if (!isPaid && !isVoided) ...[
+            FilledButton.icon(
+              icon: const Icon(Icons.add_card, size: 18),
+              label: const Text('Sell Gift Card'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.teal,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: _isSaving ? null : _showSellGiftCardDialog,
+            ),
+            const SizedBox(width: 8),
             TextButton.icon(
               icon: const Icon(Icons.cancel_outlined, color: Colors.red),
               label: const Text('Void', style: TextStyle(color: Colors.red)),
               onPressed: _isSaving ? null : _voidTransaction,
             ),
+          ],
         ],
       ),
       body: _isSaving
