@@ -6,6 +6,7 @@ import 'package:goldfish_pos/screens/admin/cash_drawer_settings_screen.dart';
 import 'package:goldfish_pos/screens/admin/customer_feedback_screen.dart';
 import 'package:goldfish_pos/screens/admin/customer_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/employee_management_screen.dart';
+import 'package:goldfish_pos/screens/admin/gift_card_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/item_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/payment_method_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/item_category_management_screen.dart';
@@ -263,6 +264,17 @@ class AdminDashboardScreen extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) => const CustomerFeedbackScreen(),
+                    ),
+                  ),
+                ),
+                _AdminCard(
+                  title: 'Gift Cards',
+                  icon: Icons.card_giftcard,
+                  color: Colors.teal,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const GiftCardManagementScreen(),
                     ),
                   ),
                 ),

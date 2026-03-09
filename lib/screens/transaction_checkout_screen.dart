@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:goldfish_pos/models/customer_feedback_model.dart';
 import 'package:goldfish_pos/models/customer_model.dart';
+import 'package:goldfish_pos/models/gift_card_model.dart';
 import 'package:goldfish_pos/models/payment_method_model.dart';
 import 'package:goldfish_pos/models/reward_settings_model.dart';
 import 'package:goldfish_pos/models/sms_settings_model.dart';
@@ -40,6 +41,12 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
   Customer? _customer;
   RewardSettings _rewardSettings = const RewardSettings();
 
+  // Gift card
+  final _giftCardIdCtrl = TextEditingController();
+  final _giftCardAmountCtrl = TextEditingController();
+  GiftCard? _lookedUpGiftCard;
+  bool _isLookingUpCard = false;
+
   /// Per-transaction SMS opt-out. Defaults to true (send SMS). Staff can
   /// flip this off before checkout to suppress the post-payment survey.
   bool _sendSmsThisTransaction = true;
@@ -72,6 +79,8 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
   void dispose() {
     _paymentAmountController.dispose();
     _rewardPointsCtrl.dispose();
+    _giftCardIdCtrl.dispose();
+    _giftCardAmountCtrl.dispose();
     super.dispose();
   }
 
@@ -331,10 +340,15 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
     );
     await _repo.updateTransaction(paid);
 
-    // Award reward points: only count cash/card payments (not reward point payments)
+    // Award reward points: only count cash/card payments
+    // (exclude reward-point redemptions and gift card payments)
     if (_customer != null && _rewardSettings.enabled) {
       final cashPaid = updated.payments
-          .where((p) => p.paymentMethodId != 'reward_points')
+          .where(
+            (p) =>
+                p.paymentMethodId != 'reward_points' &&
+                !p.paymentMethodId.startsWith('gift_card:'),
+          )
           .fold<double>(0, (s, p) => s + p.amountPaid);
       final pointsEarned = _rewardSettings.pointsEarned(cashPaid);
       if (pointsEarned > 0) {
@@ -574,6 +588,115 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
           _showError('Could not save feedback: $e');
         }
       }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GIFT CARD PAYMENT FLOW
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Future<void> _lookUpGiftCard() async {
+    final cardId = _giftCardIdCtrl.text.trim();
+    if (cardId.isEmpty) {
+      _showError('Please enter a gift card ID.');
+      return;
+    }
+    setState(() {
+      _isLookingUpCard = true;
+      _lookedUpGiftCard = null;
+    });
+    try {
+      final card = await _repo.getGiftCardByCardId(cardId);
+      if (!mounted) return;
+      if (card == null) {
+        _showError('Gift card "$cardId" not found.');
+      } else if (!card.isActive) {
+        _showError('Gift card "$cardId" is inactive.');
+      } else if (card.isExpired) {
+        _showError('Gift card "$cardId" has expired.');
+      } else if (card.balance <= 0) {
+        _showError('Gift card "$cardId" has no remaining balance.');
+      } else {
+        final remaining = _transaction.balanceRemaining;
+        final defaultAmount = card.balance.clamp(0.0, remaining);
+        setState(() {
+          _lookedUpGiftCard = card;
+          _giftCardAmountCtrl.text = defaultAmount.toStringAsFixed(2);
+        });
+      }
+    } catch (e) {
+      _showError('Failed to look up gift card: $e');
+    } finally {
+      if (mounted) setState(() => _isLookingUpCard = false);
+    }
+  }
+
+  Future<void> _applyGiftCardPayment() async {
+    final card = _lookedUpGiftCard;
+    if (card == null) {
+      _showError('Please look up a valid gift card first.');
+      return;
+    }
+    final amount = double.tryParse(_giftCardAmountCtrl.text);
+    if (amount == null || amount <= 0) {
+      _showError('Please enter a valid amount.');
+      return;
+    }
+    if (amount > card.balance + 0.001) {
+      _showError(
+        'Amount exceeds gift card balance (\$${card.balance.toStringAsFixed(2)}).',
+      );
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      // Deduct from gift card atomically
+      await _repo.deductFromGiftCard(
+        card.id,
+        amount,
+        transactionId: _transaction.id,
+        note: 'Redeemed at POS',
+      );
+
+      // Record payment on the transaction
+      final payment = Payment(
+        paymentMethodId: 'gift_card:${card.cardId}',
+        paymentMethodName: 'Gift Card (${card.cardId})',
+        amountPaid: amount,
+        paymentDate: DateTime.now(),
+      );
+      await _repo.addPaymentToTransaction(_transaction.id, payment);
+
+      final updated = await _repo.getTransaction(_transaction.id);
+      if (updated != null) setState(() => _transaction = updated);
+
+      final wasFullyPaid = _transaction.isFullyPaid;
+      final newCardBalance = card.balance - amount;
+
+      setState(() {
+        _lookedUpGiftCard = null;
+        _giftCardIdCtrl.clear();
+        _giftCardAmountCtrl.clear();
+      });
+
+      if (wasFullyPaid) {
+        await _markAsPaid();
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Gift card payment of \$${amount.toStringAsFixed(2)} applied. '
+              'Remaining card balance: \$${newCardBalance.toStringAsFixed(2)}.',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      _showError('Failed to apply gift card payment: $e');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -874,6 +997,8 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
                       p.amountPaid,
                       color: p.paymentMethodId == 'reward_points'
                           ? Colors.amber.shade700
+                          : p.paymentMethodId.startsWith('gift_card:')
+                          ? Colors.teal
                           : Colors.blue,
                     ),
                   ),
@@ -978,6 +1103,144 @@ class _TransactionCheckoutScreenState extends State<TransactionCheckoutScreen> {
                         ),
                       ],
                     ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // ── Gift Card payment ─────────────────────────────────────────
+          if (balance > 0) ...[
+            _buildSectionHeader(Icons.card_giftcard_outlined, 'Gift Card'),
+            const SizedBox(height: 8),
+            Card(
+              color: Colors.teal.shade50,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Card ID lookup row
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _giftCardIdCtrl,
+                            textCapitalization: TextCapitalization.characters,
+                            decoration: const InputDecoration(
+                              labelText: 'Gift Card ID',
+                              hintText: 'e.g. GC-001234',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                              prefixIcon: Icon(Icons.credit_card, size: 18),
+                            ),
+                            onSubmitted: (_) => _lookUpGiftCard(),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 14,
+                              horizontal: 14,
+                            ),
+                          ),
+                          onPressed: (_isSaving || _isLookingUpCard)
+                              ? null
+                              : _lookUpGiftCard,
+                          child: _isLookingUpCard
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text('Look Up'),
+                        ),
+                      ],
+                    ),
+                    // Card found – show details + amount input
+                    if (_lookedUpGiftCard != null) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.teal.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.check_circle,
+                              color: Colors.teal,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Card found · Balance: '
+                                '\$${_lookedUpGiftCard!.balance.toStringAsFixed(2)}'
+                                '${_lookedUpGiftCard!.expiresAt != null ? ' · Expires ${_lookedUpGiftCard!.expiresAt!.month}/${_lookedUpGiftCard!.expiresAt!.day}/${_lookedUpGiftCard!.expiresAt!.year}' : ''}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.teal,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () =>
+                                  setState(() => _lookedUpGiftCard = null),
+                              child: const Text('Clear'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _giftCardAmountCtrl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: InputDecoration(
+                                labelText: 'Amount to Redeem',
+                                prefixText: '\$',
+                                border: const OutlineInputBorder(),
+                                isDense: true,
+                                suffixIcon: TextButton(
+                                  onPressed: () {
+                                    final max = _lookedUpGiftCard!.balance
+                                        .clamp(0.0, balance);
+                                    _giftCardAmountCtrl.text = max
+                                        .toStringAsFixed(2);
+                                  },
+                                  child: const Text('Max'),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.teal,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 14,
+                                horizontal: 14,
+                              ),
+                            ),
+                            onPressed: _isSaving ? null : _applyGiftCardPayment,
+                            child: const Text('Apply'),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),

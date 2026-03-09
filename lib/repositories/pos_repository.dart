@@ -4,6 +4,7 @@ import 'package:goldfish_pos/models/appointment_model.dart';
 import 'package:goldfish_pos/models/booking_settings_model.dart';
 import 'package:goldfish_pos/models/business_settings_model.dart';
 import 'package:goldfish_pos/models/cash_drawer_settings_model.dart';
+import 'package:goldfish_pos/models/gift_card_model.dart';
 import 'package:goldfish_pos/models/item_category_model.dart';
 import 'package:goldfish_pos/models/item_model.dart';
 import 'package:goldfish_pos/models/employee_model.dart';
@@ -895,6 +896,168 @@ class PosRepository {
           .set(settings.toFirestore(), SetOptions(merge: true));
     } catch (e) {
       throw Exception('Failed to save business settings: $e');
+    }
+  }
+
+  // ==================== Gift Card Operations ====================
+
+  /// Creates a new gift card document and returns its Firestore ID.
+  Future<String> createGiftCard(GiftCard card) async {
+    try {
+      final docRef = await _firestore
+          .collection('giftCards')
+          .add(card.toFirestore());
+      return docRef.id;
+    } catch (e) {
+      throw Exception('Failed to create gift card: $e');
+    }
+  }
+
+  /// Updates an existing gift card document (full overwrite of mutable fields).
+  Future<void> updateGiftCard(GiftCard card) async {
+    try {
+      await _firestore
+          .collection('giftCards')
+          .doc(card.id)
+          .update(card.toFirestore());
+    } catch (e) {
+      throw Exception('Failed to update gift card: $e');
+    }
+  }
+
+  /// Looks up a gift card by its human-readable [cardId] label.
+  /// Returns null if no matching card is found.
+  Future<GiftCard?> getGiftCardByCardId(String cardId) async {
+    try {
+      final snapshot = await _firestore
+          .collection('giftCards')
+          .where('cardId', isEqualTo: cardId.trim())
+          .limit(1)
+          .get();
+      if (snapshot.docs.isEmpty) return null;
+      return GiftCard.fromFirestore(snapshot.docs.first);
+    } catch (e) {
+      throw Exception('Failed to look up gift card: $e');
+    }
+  }
+
+  /// Streams all gift cards ordered by issue date (most recent first).
+  Stream<List<GiftCard>> streamGiftCards() {
+    return _firestore
+        .collection('giftCards')
+        .orderBy('issuedAt', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) =>
+              snapshot.docs.map((doc) => GiftCard.fromFirestore(doc)).toList(),
+        );
+  }
+
+  /// Atomically deducts [amount] from a gift card's balance and appends a
+  /// ledger entry. Throws if the card doesn't have sufficient balance.
+  Future<void> deductFromGiftCard(
+    String giftCardDocId,
+    double amount, {
+    String? transactionId,
+    String? note,
+  }) async {
+    try {
+      await _firestore.runTransaction((txn) async {
+        final ref = _firestore.collection('giftCards').doc(giftCardDocId);
+        final snap = await txn.get(ref);
+        if (!snap.exists) throw Exception('Gift card not found.');
+
+        final current = GiftCard.fromFirestore(snap);
+        if (current.balance < amount - 0.001) {
+          throw Exception(
+            'Insufficient gift card balance '
+            '(\$${current.balance.toStringAsFixed(2)} available).',
+          );
+        }
+
+        final entry = GiftCardEntry(
+          type: GiftCardEntryType.redeemed,
+          amount: -amount,
+          date: DateTime.now(),
+          transactionId: transactionId,
+          note: note,
+        );
+
+        final newBalance = (current.balance - amount).clamp(
+          0.0,
+          double.infinity,
+        );
+        final updatedHistory = [...current.history, entry];
+
+        txn.update(ref, {
+          'balance': newBalance,
+          'history': updatedHistory.map((e) => e.toJson()).toList(),
+          'updatedAt': Timestamp.now(),
+        });
+      });
+    } catch (e) {
+      throw Exception('Failed to deduct from gift card: $e');
+    }
+  }
+
+  /// Adds [amount] to a gift card's balance (reload / top-up). This also
+  /// reactivates a previously deactivated card.
+  Future<void> reloadGiftCard(
+    String giftCardDocId,
+    double amount, {
+    String? note,
+  }) async {
+    try {
+      await _firestore.runTransaction((txn) async {
+        final ref = _firestore.collection('giftCards').doc(giftCardDocId);
+        final snap = await txn.get(ref);
+        if (!snap.exists) throw Exception('Gift card not found.');
+
+        final current = GiftCard.fromFirestore(snap);
+
+        final entry = GiftCardEntry(
+          type: GiftCardEntryType.reloaded,
+          amount: amount,
+          date: DateTime.now(),
+          note: note,
+        );
+
+        final updatedHistory = [...current.history, entry];
+
+        txn.update(ref, {
+          'balance': current.balance + amount,
+          'loadedAmount': amount,
+          'isActive': true, // reactivate if it was deactivated
+          'history': updatedHistory.map((e) => e.toJson()).toList(),
+          'updatedAt': Timestamp.now(),
+        });
+      });
+    } catch (e) {
+      throw Exception('Failed to reload gift card: $e');
+    }
+  }
+
+  /// Deactivates a gift card (sets isActive = false).
+  Future<void> deactivateGiftCard(String giftCardDocId) async {
+    try {
+      await _firestore.collection('giftCards').doc(giftCardDocId).update({
+        'isActive': false,
+        'updatedAt': Timestamp.now(),
+      });
+    } catch (e) {
+      throw Exception('Failed to deactivate gift card: $e');
+    }
+  }
+
+  /// Reactivates a previously deactivated gift card.
+  Future<void> reactivateGiftCard(String giftCardDocId) async {
+    try {
+      await _firestore.collection('giftCards').doc(giftCardDocId).update({
+        'isActive': true,
+        'updatedAt': Timestamp.now(),
+      });
+    } catch (e) {
+      throw Exception('Failed to reactivate gift card: $e');
     }
   }
 }
