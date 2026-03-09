@@ -26,11 +26,14 @@ the Startup folder:  Win+R  ->  shell:startup
 import sys
 import json
 import os
+import socket
 import logging
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ── Configuration ──────────────────────────────────────────────────────────
-PORT = 8765           # Must match "Bridge Port" in POS > Admin > Cash Drawer
+PREFERRED_PORT = 8765  # Preferred port; bridge auto-selects if this is taken.
+                       # Must match "Bridge Port" in POS > Admin > Cash Drawer
+                       # (the POS scans nearby ports automatically).
 
 PRINTER_NAME = ""     # Leave blank to use the Windows default printer.
                       # Or set to the exact name shown in
@@ -40,6 +43,17 @@ PRINTER_NAME = ""     # Leave blank to use the Windows default printer.
 # ESC/POS command: kick cash drawer connected to drawer port 0 (~50 ms pulse)
 KICK_COMMAND = bytes([0x1B, 0x70, 0x00, 0x19, 0xFA])
 # ───────────────────────────────────────────────────────────────────────────
+
+def _find_free_port(preferred: int) -> int:
+    """Return preferred port if free, otherwise the first free port in 8765-8779."""
+    for p in [preferred] + [x for x in range(8765, 8780) if x != preferred]:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('127.0.0.1', p))
+                return p
+        except OSError:
+            continue
+    return preferred  # Will fail at HTTPServer.bind — reported clearly there.
 # ── Logging setup: writes to bridge.log next to this script ───────────────
 _script_dir = os.path.dirname(os.path.abspath(__file__))
 _log_path   = os.path.join(_script_dir, 'bridge.log')
@@ -53,6 +67,11 @@ logging.basicConfig(
 )
 log = logging.getLogger('bridge')
 # ───────────────────────────────────────────────────────────────────────
+
+PORT = _find_free_port(PREFERRED_PORT)
+if PORT != PREFERRED_PORT:
+    log.warning('Port %d was in use; using port %d instead.', PREFERRED_PORT, PORT)
+
 
 def open_drawer():
     """Send the ESC/POS kick command to the printer via the Windows spooler."""
@@ -161,6 +180,18 @@ def print_receipt(data: dict):
         return False, str(exc)
 
 
+def get_printers() -> list:
+    """Return the names of all printers visible to Windows."""
+    try:
+        import win32print  # type: ignore[import]
+        flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+        printers = win32print.EnumPrinters(flags, None, 2)
+        return [p['pPrinterName'] for p in printers]
+    except Exception as exc:
+        log.error('get_printers failed: %s', exc)
+        return []
+
+
 class _Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         log.info(fmt, *args)
@@ -183,6 +214,15 @@ class _Handler(BaseHTTPRequestHandler):
                 'port': PORT,
                 'log': _log_path,
             }).encode()
+            self.send_response(200)
+            self._cors()
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == '/printers':
+            names = get_printers()
+            body = json.dumps({'ok': True, 'printers': names}).encode()
             self.send_response(200)
             self._cors()
             self.send_header('Content-Type', 'application/json')
@@ -228,12 +268,14 @@ class _Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     log.info('=' * 55)
     log.info('Goldfish POS Cash Drawer Bridge starting')
-    log.info('Port : %d', PORT)
-    log.info('Log  : %s', _log_path)
+    log.info('Preferred port : %d', PREFERRED_PORT)
+    log.info('Actual port    : %d', PORT)
+    log.info('Log            : %s', _log_path)
+    log.info('Endpoints      : /status  /printers  /open-drawer  /print')
     log.info('=' * 55)
 
     try:
-        server = HTTPServer(('localhost', PORT), _Handler)
+        server = HTTPServer(('127.0.0.1', PORT), _Handler)
         server.serve_forever()
     except OSError as e:
         log.critical('Cannot bind to port %d: %s', PORT, e)

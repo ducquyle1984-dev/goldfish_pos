@@ -84,17 +84,35 @@ class CashDrawerService {
 
   /// Send an open-drawer request to the local bridge script.
   Future<CashDrawerResult> _openViaBridge(int bridgePort) async {
+    // Try the configured port first with a full timeout.
     try {
-      // Use 127.0.0.1 explicitly — on some Windows machines "localhost" resolves
-      // to ::1 (IPv6) but the bridge binds to 127.0.0.1 (IPv4), causing a
-      // connection failure even though the bridge is running correctly.
       final uri = Uri.parse('http://127.0.0.1:$bridgePort/open-drawer');
       final response = await http.post(uri).timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) return CashDrawerResult.success;
       return CashDrawerResult.connectionFailed;
-    } catch (_) {
-      return CashDrawerResult.bridgeNotRunning;
-    }
+    } catch (_) {}
+
+    // Configured port not responding — scan the well-known range in parallel.
+    // The bridge auto-selects a free port, so it may be on a different one.
+    final candidates = List.generate(
+      10,
+      (i) => 8765 + i,
+    ).where((p) => p != bridgePort);
+    final results = await Future.wait(
+      candidates.map((port) async {
+        try {
+          final uri = Uri.parse('http://127.0.0.1:$port/open-drawer');
+          final response = await http
+              .post(uri)
+              .timeout(const Duration(milliseconds: 800));
+          return response.statusCode == 200;
+        } catch (_) {
+          return false;
+        }
+      }),
+    );
+    if (results.any((ok) => ok)) return CashDrawerResult.success;
+    return CashDrawerResult.bridgeNotRunning;
   }
 }
 

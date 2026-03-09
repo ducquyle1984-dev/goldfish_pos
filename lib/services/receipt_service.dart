@@ -215,9 +215,6 @@ class ReceiptService {
       lines.add(_line('confirm that they were delivered to'));
       lines.add(_line('my full satisfaction.'));
       lines.add(_blank());
-      lines.add(_line('________________________________'));
-      lines.add(_line('Customer Signature'));
-      lines.add(_blank());
     }
 
     // ── Technician subtotal ──────────────────────────────────────────────
@@ -293,29 +290,40 @@ class ReceiptService {
       return 'Receipt printing only supported in Local Bridge mode.';
     }
 
-    final url = 'http://127.0.0.1:${settings.bridgePort}/print';
-    try {
-      final body = json.encode({
-        'printer': settings.printerName,
-        'lines': lines,
-      });
-      final response = await http
-          .post(
-            Uri.parse(url),
-            headers: {'Content-Type': 'application/json'},
-            body: body,
-          )
-          .timeout(const Duration(seconds: 10));
+    final body = json.encode({'printer': settings.printerName, 'lines': lines});
 
-      if (response.statusCode == 200) return null; // success
-      final decoded = json.decode(response.body) as Map<String, dynamic>;
-      return decoded['message']?.toString() ??
-          'Bridge returned ${response.statusCode}';
-    } catch (e) {
-      return 'Could not reach the bridge at $url.\n'
-          'Make sure the bridge helper is running. '
-          'If it was installed before today, reinstall it from '
-          'Admin → Cash Drawer so it gets the receipt-printing update.';
+    // Try the configured port first, then scan nearby ports in case the
+    // bridge auto-selected a different port on this PC.
+    final portsToTry = [
+      settings.bridgePort,
+      ...List.generate(
+        10,
+        (i) => 8765 + i,
+      ).where((p) => p != settings.bridgePort),
+    ];
+
+    for (final port in portsToTry) {
+      try {
+        final response = await http
+            .post(
+              Uri.parse('http://127.0.0.1:$port/print'),
+              headers: {'Content-Type': 'application/json'},
+              body: body,
+            )
+            .timeout(Duration(seconds: port == settings.bridgePort ? 8 : 1));
+
+        if (response.statusCode == 200) return null; // success
+        final decoded = json.decode(response.body) as Map<String, dynamic>;
+        return decoded['message']?.toString() ??
+            'Bridge returned ${response.statusCode}';
+      } catch (_) {
+        // Port not responding — try next.
+      }
     }
+
+    return 'Could not reach the bridge helper on port '
+        '${settings.bridgePort} or nearby ports.\n'
+        'Go to Admin → Cash Drawer and tap Refresh (↻) '
+        'to auto-detect the correct port.';
   }
 }

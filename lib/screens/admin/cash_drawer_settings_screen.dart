@@ -1,4 +1,6 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'dart:convert';
+
+import 'package:flutter/material.dart';
 import 'package:goldfish_pos/models/cash_drawer_settings_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/services/cash_drawer_service.dart';
@@ -27,6 +29,7 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
   bool? _bridgeOnline;
   String? _bridgeError; // last error from status check
   bool _checkingBridge = false;
+  bool _selectingPrinter = false;
 
   @override
   void initState() {
@@ -60,29 +63,68 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
       _checkingBridge = true;
       _bridgeError = null;
     });
+
+    final preferred = _settings.bridgePort;
+    int? foundPort;
+
+    // 1. Try the configured port first with a normal timeout.
     try {
-      // Use 127.0.0.1 explicitly — on some Windows machines "localhost" resolves
-      // to ::1 (IPv6) but the bridge binds to 127.0.0.1 (IPv4).
       final res = await http
-          .get(Uri.parse('http://127.0.0.1:${_settings.bridgePort}/status'))
-          .timeout(const Duration(seconds: 4));
+          .get(Uri.parse('http://127.0.0.1:$preferred/status'))
+          .timeout(const Duration(seconds: 3));
+      if (res.statusCode == 200) foundPort = preferred;
+    } catch (_) {}
+
+    // 2. Not found — scan the well-known range in parallel (fast, ~800 ms).
+    if (foundPort == null) {
+      final candidates = List.generate(
+        10,
+        (i) => 8765 + i,
+      ).where((p) => p != preferred);
+      final results = await Future.wait(
+        candidates.map((port) async {
+          try {
+            final res = await http
+                .get(Uri.parse('http://127.0.0.1:$port/status'))
+                .timeout(const Duration(milliseconds: 800));
+            if (res.statusCode == 200) return port;
+          } catch (_) {}
+          return null;
+        }),
+      );
+      foundPort = results.whereType<int>().firstOrNull;
+    }
+
+    if (!mounted) return;
+
+    // 3. Auto-save if found on a different port.
+    if (foundPort != null && foundPort != preferred) {
+      final updated = _settings.copyWith(bridgePort: foundPort);
+      setState(() => _settings = updated);
+      _printerNameController.text = updated.printerName;
+      await _repo.saveCashDrawerSettings(updated);
       if (mounted) {
-        setState(() {
-          _bridgeOnline = res.statusCode == 200;
-          if (res.statusCode != 200) {
-            _bridgeError = 'Server returned status ${res.statusCode}';
-          }
-        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Bridge found on port $foundPort — '
+              'settings updated automatically.',
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _bridgeOnline = false;
-          _bridgeError = e.toString();
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _checkingBridge = false);
+    }
+
+    if (mounted) {
+      setState(() {
+        _bridgeOnline = foundPort != null;
+        _bridgeError = foundPort == null
+            ? 'Bridge not found on port $preferred or nearby ports (8765–8774).'
+            : null;
+        _checkingBridge = false;
+      });
     }
   }
 
@@ -164,6 +206,52 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _selectPrinter() async {
+    if (!mounted) return;
+    setState(() => _selectingPrinter = true);
+    try {
+      final res = await http
+          .get(Uri.parse('http://127.0.0.1:${_settings.bridgePort}/printers'))
+          .timeout(const Duration(seconds: 5));
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body) as Map<String, dynamic>;
+        final printers = (data['printers'] as List<dynamic>)
+            .map((e) => e.toString())
+            .toList();
+        if (printers.isEmpty) {
+          _showError(
+            'No printers found on this computer.\n'
+            'Make sure at least one printer is installed in Windows Settings.',
+          );
+          return;
+        }
+        final picked = await showDialog<String>(
+          context: context,
+          builder: (_) => _PrinterPickerDialog(
+            printers: printers,
+            current: _printerNameController.text.trim(),
+          ),
+        );
+        if (picked != null && mounted) {
+          setState(() => _printerNameController.text = picked);
+        }
+      } else {
+        _showError(
+          'The bridge responded but could not list printers.\n'
+          'Reinstall the bridge from this page to get the latest version.',
+        );
+      }
+    } catch (_) {
+      _showError(
+        'Cannot reach the bridge.\n'
+        'Click the refresh icon (↻) first to confirm it is online.',
+      );
+    } finally {
+      if (mounted) setState(() => _selectingPrinter = false);
+    }
   }
 
   /// Returns widgets shown inside the Helper App card when the bridge is offline.
@@ -373,6 +461,40 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
                         prefixIcon: Icon(Icons.print_outlined),
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: _selectingPrinter
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.list_alt_outlined, size: 18),
+                        label: Text(
+                          _selectingPrinter
+                              ? 'Loading printers\u2026'
+                              : 'Select Printer from List',
+                        ),
+                        onPressed: (_selectingPrinter || _bridgeOnline != true)
+                            ? null
+                            : _selectPrinter,
+                      ),
+                    ),
+                    if (_bridgeOnline != true)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          'Bridge must be online to list printers.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -591,6 +713,60 @@ class _InstallStep extends StatelessWidget {
   }
 }
 
+// ── Printer picker dialog ────────────────────────────────────────────────────
+
+class _PrinterPickerDialog extends StatelessWidget {
+  final List<String> printers;
+  final String current;
+
+  const _PrinterPickerDialog({required this.printers, required this.current});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Select Printer'),
+      contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+      content: SizedBox(
+        width: 440,
+        child: ListView.builder(
+          shrinkWrap: true,
+          itemCount: printers.length,
+          itemBuilder: (context, i) {
+            final name = printers[i];
+            final selected = name == current;
+            return ListTile(
+              leading: Icon(
+                Icons.print_outlined,
+                color: selected
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.grey,
+              ),
+              title: Text(name),
+              trailing: selected
+                  ? Icon(
+                      Icons.check,
+                      color: Theme.of(context).colorScheme.primary,
+                    )
+                  : null,
+              onTap: () => Navigator.pop(context, name),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, ''),
+          child: const Text('Clear (Use Default Printer)'),
+        ),
+      ],
+    );
+  }
+}
+
 // ── Download helper ───────────────────────────────────────────────────────────
 
 void _downloadInstaller(int port) {
@@ -660,12 +836,22 @@ New-Item -ItemType Directory -Force -Path \$AppDir | Out-Null
 #!/usr/bin/env python3
 # Goldfish POS Cash Drawer Bridge
 # Log: %APPDATA%\\GoldfishPOS\\bridge.log
-import sys, json, os, logging
+import sys, json, os, logging, socket
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-PORT = $port
+PREFERRED_PORT = $port
 PRINTER_NAME = ""
 KICK_COMMAND = bytes([0x1B, 0x70, 0x00, 0x19, 0xFA])
+
+def _find_free_port(preferred):
+    for p in [preferred] + [x for x in range(8765, 8780) if x != preferred]:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('127.0.0.1', p))
+                return p
+        except OSError:
+            continue
+    return preferred
 
 # Stdout-only logging: the launcher bat redirects stdout >> bridge.log
 # Do NOT also open bridge.log here -- that causes PermissionError (two handles on same file)
@@ -675,6 +861,10 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 log = logging.getLogger('bridge')
+
+PORT = _find_free_port(PREFERRED_PORT)
+if PORT != PREFERRED_PORT:
+    log.warning('Port %d in use; using port %d instead', PREFERRED_PORT, PORT)
 
 
 def open_drawer():
@@ -706,7 +896,7 @@ def print_receipt(data):
         ESC=0x1B; GS=0x1D
         INIT=bytes([ESC,0x40]); LEFT=bytes([ESC,0x61,0x00]); CTR=bytes([ESC,0x61,0x01])
         RIGHT=bytes([ESC,0x61,0x02]); BON=bytes([ESC,0x45,0x01]); BOFF=bytes([ESC,0x45,0x00])
-        SZ1=bytes([GS,0x21,0x00]); SZ2=bytes([GS,0x21,0x11]); LF=b'\n'
+        SZ1=bytes([GS,0x21,0x00]); SZ2=bytes([GS,0x21,0x11]); LF=b'\\n'
         CUT=bytes([GS,0x56,0x41,0x00]); SEP=('-'*42)
         printer = data.get('printer') or PRINTER_NAME or win32print.GetDefaultPrinter()
         out = bytearray(INIT)
@@ -737,6 +927,17 @@ def print_receipt(data):
         return False, str(e)
 
 
+def get_printers():
+    try:
+        import win32print
+        flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+        printers = win32print.EnumPrinters(flags, None, 2)
+        return [p['pPrinterName'] for p in printers]
+    except Exception as e:
+        log.error('get_printers: %s', e)
+        return []
+
+
 class _H(BaseHTTPRequestHandler):
     def log_message(self, fmt, *a): log.debug(fmt, *a)
     def _cors(self):
@@ -748,6 +949,13 @@ class _H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/status':
             body = json.dumps({'ok': True, 'port': PORT}).encode()
+            self.send_response(200); self._cors()
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers(); self.wfile.write(body)
+        elif self.path == '/printers':
+            names = get_printers()
+            body = json.dumps({'ok': True, 'printers': names}).encode()
             self.send_response(200); self._cors()
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(body)))
