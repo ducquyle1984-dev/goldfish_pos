@@ -271,137 +271,55 @@
       <div class="app-sub">Point of Sale System</div>
       <div class="loading-dots"><span></span><span></span><span></span></div>
     </div>
-
     <script>
-      // â”€â”€ Service worker hard-reset â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      // Our new Flutter build no longer registers a service worker.
-      // If the browser still has an OLD service worker from a previous build,
-      // it intercepts requests and serves stale cached JS â†’ white screen.
-      // We unconditionally unregister every SW on every page load; if any
-      // existed we do ONE reload so the fresh files are fetched with no SW.
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.getRegistrations().then(function (regs) {
-          var hadSW = regs.length > 0;
-          Promise.all(
-            regs.map(function (r) {
-              return r.unregister();
-            }),
-          ).then(function () {
-            if (hadSW) {
-              caches.keys().then(function (keys) {
-                Promise.all(
-                  keys.map(function (k) {
-                    return caches.delete(k);
-                  }),
-                ).then(function () {
-                  window.location.reload();
-                });
-              });
-            }
-          });
-        });
-      }
+      // Build version (bumped by deploy.ps1 on every deploy)
+      var BUILD_VERSION = "2026-03-09-v5";
 
-      // â”€â”€ Build version: bump this string on every deploy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      // On a version mismatch we unregister all service workers, wipe every
-      // cache, and do a single hard-reload so the browser fetches fresh assets.
-      var BUILD_VERSION = "2026-03-09-v4";
-      var storedVersion = localStorage.getItem("gfpos_build");
-
-      if (storedVersion !== BUILD_VERSION) {
-        localStorage.setItem("gfpos_build", BUILD_VERSION);
-        if ("serviceWorker" in navigator && "caches" in window) {
-          Promise.all([
-            navigator.serviceWorker.getRegistrations().then(function (regs) {
-              return Promise.all(
-                regs.map(function (r) {
-                  return r.unregister();
-                }),
-              );
-            }),
-            caches.keys().then(function (keys) {
-              return Promise.all(
-                keys.map(function (k) {
-                  return caches.delete(k);
-                }),
-              );
-            }),
-          ]).then(function () {
-            window.location.reload();
-          });
-        }
-      }
-
-      // â”€â”€ Service Worker: always activate the newest version immediately â”€â”€â”€â”€â”€â”€
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.addEventListener(
-          "controllerchange",
-          function () {
-            window.location.reload();
-          },
-        );
-
-        navigator.serviceWorker.ready.then(function (registration) {
-          document.addEventListener("visibilitychange", function () {
-            if (document.visibilityState === "visible") {
-              registration.update();
-            }
-          });
-
-          function activateWaiting(sw) {
-            sw.addEventListener("statechange", function () {
-              if (sw.state === "installed") {
-                sw.postMessage({ type: "SKIP_WAITING" });
-              }
-            });
-            if (sw.state === "installed") {
-              sw.postMessage({ type: "SKIP_WAITING" });
-            }
-          }
-
-          if (registration.waiting) {
-            activateWaiting(registration.waiting);
-          }
-          registration.addEventListener("updatefound", function () {
-            if (registration.installing) {
-              activateWaiting(registration.installing);
-            }
-          });
-        });
-      }
-
-      // â”€â”€ Dismiss loading overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // Dismiss loading overlay
       function dismissLoading() {
         var el = document.getElementById("loading");
         if (el) {
           el.style.transition = "opacity 0.3s ease";
           el.style.opacity = "0";
-          setTimeout(function () {
-            el.remove();
-          }, 350);
+          setTimeout(function () { el.remove(); }, 350);
         }
       }
-
-      // Dismiss when Flutter fires its first frame (normal path).
       window.addEventListener("flutter-first-frame", dismissLoading);
-
-      // Safety net: if flutter-first-frame never fires (broken SW cache,
-      // network error, etc.) forcibly remove the overlay after 15 s so the
-      // user sees whatever is on screen rather than an eternal spinner.
       setTimeout(dismissLoading, 15000);
-    </script>
 
-    <script>
-      // Load flutter_bootstrap with the BUILD_VERSION as a query string.
-      // This busts any old service worker cache that has the unversioned URL
-      // stored — a new version query causes a SW cache miss and forces a fresh
-      // network fetch, guaranteeing the updated app is loaded on every deploy.
-      (function () {
-        var s = document.createElement('script');
-        s.src = 'flutter_bootstrap.js?v=' + BUILD_VERSION;
-        s.async = true;
+      // Kill old service workers + clear caches FIRST, then load bootstrap.
+      // The bootstrap loads main.dart.js internally - if a stale SW is still
+      // alive when bootstrap runs, the SW serves an old main.dart.js.
+      // By injecting the <script> tag only AFTER the SW is dead we guarantee
+      // a network fetch for every JS file on every deploy.
+      function loadBootstrap() {
+        var s = document.createElement("script");
+        s.src = "flutter_bootstrap.js?v=" + BUILD_VERSION;
         document.body.appendChild(s);
-      })();
+      }
+
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.addEventListener("controllerchange", function () {
+          window.location.reload();
+        });
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          if (regs.length === 0) {
+            loadBootstrap();
+            return;
+          }
+          Promise.all(regs.map(function (r) { return r.unregister(); }))
+            .then(function () {
+              return "caches" in window
+                ? caches.keys().then(function (keys) {
+                    return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+                  })
+                : Promise.resolve();
+            })
+            .then(loadBootstrap);
+        });
+      } else {
+        loadBootstrap();
+      }
     </script>
   </body>
 </html>
