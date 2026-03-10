@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:goldfish_pos/models/business_settings_model.dart';
+import 'package:goldfish_pos/providers/touchscreen_provider.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
+import 'package:provider/provider.dart';
 
 /// Admin screen for configuring the salon's business info (name, address,
 /// phone) which appears at the top of every printed receipt.
@@ -20,6 +22,7 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
   final _taxLabelCtrl = TextEditingController();
   final _taxRateCtrl = TextEditingController();
 
+  bool _touchscreenEnabled = false;
   bool _loading = true;
   bool _saving = false;
 
@@ -49,6 +52,7 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
         _phoneCtrl.text = s.phone;
         _taxLabelCtrl.text = s.taxLabel;
         _taxRateCtrl.text = s.taxRate > 0 ? s.taxRate.toStringAsFixed(2) : '';
+        _touchscreenEnabled = s.touchscreenEnabled;
         _loading = false;
       });
     } catch (_) {
@@ -72,12 +76,14 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
           ? _taxLabelCtrl.text.trim()
           : 'Tax',
       taxRate: taxRate,
+      touchscreenEnabled: _touchscreenEnabled,
     );
 
     setState(() => _saving = true);
     try {
       await _repo.saveBusinessSettings(settings);
       if (mounted) {
+        context.read<TouchscreenProvider>().setEnabled(_touchscreenEnabled);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Business settings saved.'),
@@ -263,6 +269,44 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
                           'Note: The tax rate here is for display reference only. '
                           'Actual tax per transaction is set when creating each transaction.',
                           style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // ── Touchscreen mode ─────────────────────────────────────
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Input Options',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Enable if this POS terminal has a touchscreen. '
+                          'PIN-entry dialogs will show an on-screen number pad.',
+                          style: TextStyle(fontSize: 13, color: Colors.grey),
+                        ),
+                        const SizedBox(height: 8),
+                        SwitchListTile(
+                          value: _touchscreenEnabled,
+                          onChanged: (v) =>
+                              setState(() => _touchscreenEnabled = v),
+                          title: const Text('Touchscreen Mode'),
+                          subtitle: const Text(
+                            'Show on-screen numpad for PIN entry',
+                          ),
+                          secondary: const Icon(Icons.touch_app_outlined),
+                          contentPadding: EdgeInsets.zero,
                         ),
                       ],
                     ),

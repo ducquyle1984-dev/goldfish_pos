@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:goldfish_pos/models/gift_card_model.dart';
 import 'package:goldfish_pos/models/customer_model.dart';
 import 'package:goldfish_pos/models/employee_model.dart';
 import 'package:goldfish_pos/models/item_category_model.dart';
 import 'package:goldfish_pos/models/item_model.dart';
 import 'package:goldfish_pos/models/payment_method_model.dart';
 import 'package:goldfish_pos/models/transaction_model.dart';
+import 'package:goldfish_pos/models/customer_feedback_model.dart';
+import 'package:goldfish_pos/models/reward_settings_model.dart';
+import 'package:goldfish_pos/models/sms_settings_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/services/cash_drawer_service.dart';
+import 'package:goldfish_pos/services/helcim_service.dart';
+import 'package:goldfish_pos/services/sms_service.dart';
 import 'package:goldfish_pos/widgets/customer_check_in_dialog.dart';
 import 'package:goldfish_pos/widgets/receipt_print_dialog.dart';
 
@@ -74,9 +80,22 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
 
   // Inline payment entry
   _CheckoutTab _checkoutTab = _CheckoutTab.cash;
-  PaymentMethodInfo? _checkoutProcessor;
+  PaymentMethod? _checkoutProcessor; // full object for Helcim routing
   final _tenderCtrl = TextEditingController();
   final _otherNoteCtrl = TextEditingController();
+
+  // Gift card payment state
+  final _giftCardIdCtrl = TextEditingController();
+  final _giftCardAmountCtrl = TextEditingController();
+  GiftCard? _lookedUpGiftCard;
+  bool _isLookingUpCard = false;
+
+  // Reward points
+  final _rewardPointsCtrl = TextEditingController();
+  RewardSettings _rewardSettings = const RewardSettings();
+
+  // SMS toggle – staff can suppress the survey for a specific transaction
+  bool _sendSmsThisTransaction = true;
 
   // Item browser
   String? _selectedCategoryId;
@@ -103,6 +122,13 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
   /// an existing pending transaction.
   Future<_ScreenData> _loadAndPopulate() async {
     final data = await _loadScreenData();
+    // Load reward settings in the background (non-blocking)
+    _repo
+        .getRewardSettings()
+        .then((s) {
+          if (mounted) setState(() => _rewardSettings = s);
+        })
+        .catchError((_) {});
     final tx = widget.existingTransaction;
     if (tx != null) {
       _discounts.addAll(tx.discounts);
@@ -473,6 +499,8 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
             builder: (_) => ReceiptPrintDialog(transaction: tx),
           );
         }
+        // Award reward points and show SMS survey
+        if (mounted) await _handlePostPayment(tx);
         if (mounted) Navigator.of(context).pop();
       } else if (asPending) {
         _snack('Transaction saved.');
@@ -852,6 +880,14 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
                       : () => _saveTransaction(asPending: true),
                 ),
               ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _ActionButton(
+                  icon: Icons.add_card,
+                  label: 'Sell GC',
+                  onTap: _showSellGiftCardDialog,
+                ),
+              ),
             ],
           ),
         ),
@@ -968,6 +1004,13 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
         ? (tender - remaining).clamp(0.0, double.infinity)
         : 0.0;
 
+    // Reward points section (shown when a customer with points is attached)
+    final canRedeemRewards =
+        _selectedCustomer != null &&
+        _rewardSettings.enabled &&
+        _selectedCustomer!.rewardPoints > 0 &&
+        remaining > 0;
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
@@ -978,6 +1021,76 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
+          // ── Reward Points redemption (only when customer has points) ─────
+          if (canRedeemRewards) ...[
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber.shade300),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.star, color: Colors.amber.shade700, size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${_selectedCustomer!.rewardPoints.toStringAsFixed(0)} pts available (1 pt = \$1.00)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: Colors.amber.shade900,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _rewardPointsCtrl,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: 'Points to redeem',
+                            prefixIcon: const Icon(Icons.star_border, size: 16),
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                            suffixIcon: TextButton(
+                              onPressed: () {
+                                final max = _selectedCustomer!.rewardPoints
+                                    .clamp(0.0, remaining);
+                                _rewardPointsCtrl.text = max.toStringAsFixed(0);
+                              },
+                              child: const Text('Max'),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.amber,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 14,
+                            horizontal: 16,
+                          ),
+                        ),
+                        onPressed: _isSaving ? null : _applyRewardPoints,
+                        child: const Text('Redeem'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+
           // Header row
           Row(
             children: [
@@ -1038,6 +1151,19 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
                   _tenderCtrl.text = remaining.toStringAsFixed(2);
                 }),
               ),
+              const SizedBox(width: 6),
+              _payTabBtn(
+                ctx: context,
+                icon: Icons.card_giftcard,
+                label: 'Gift Card',
+                active: _checkoutTab == _CheckoutTab.giftCard,
+                onTap: () => setState(() {
+                  _checkoutTab = _CheckoutTab.giftCard;
+                  _lookedUpGiftCard = null;
+                  _giftCardIdCtrl.clear();
+                  _giftCardAmountCtrl.text = remaining.toStringAsFixed(2);
+                }),
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -1051,7 +1177,10 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
               children: data.paymentMethods.map((m) {
                 final sel = m.id == _checkoutProcessor?.id;
                 return ChoiceChip(
-                  label: Text(m.name, style: const TextStyle(fontSize: 12)),
+                  label: Text(
+                    m.merchantName,
+                    style: const TextStyle(fontSize: 12),
+                  ),
                   selected: sel,
                   onSelected: (_) => setState(() => _checkoutProcessor = m),
                 );
@@ -1076,6 +1205,114 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
             const SizedBox(height: 8),
           ],
 
+          // Gift Card lookup
+          if (_checkoutTab == _CheckoutTab.giftCard) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _giftCardIdCtrl,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: const InputDecoration(
+                      labelText: 'Gift Card ID',
+                      hintText: 'e.g. GC-001234',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      prefixIcon: Icon(Icons.credit_card, size: 18),
+                    ),
+                    onSubmitted: (_) => _lookUpGiftCard(remaining),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 14,
+                      horizontal: 14,
+                    ),
+                  ),
+                  onPressed: _isLookingUpCard
+                      ? null
+                      : () => _lookUpGiftCard(remaining),
+                  child: _isLookingUpCard
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Look Up'),
+                ),
+              ],
+            ),
+            if (_lookedUpGiftCard != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.teal.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.teal.shade200),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.check_circle,
+                      color: Colors.teal,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Balance: \$${_lookedUpGiftCard!.balance.toStringAsFixed(2)}'
+                        '${_lookedUpGiftCard!.expiresAt != null ? ' · Expires ${_lookedUpGiftCard!.expiresAt!.month}/${_lookedUpGiftCard!.expiresAt!.day}/${_lookedUpGiftCard!.expiresAt!.year}' : ''}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.teal,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _giftCardAmountCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Amount to Apply',
+                        prefixText: '\$',
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                        suffixIcon: TextButton(
+                          onPressed: () {
+                            final max = _lookedUpGiftCard!.balance.clamp(
+                              0.0,
+                              remaining,
+                            );
+                            _giftCardAmountCtrl.text = max.toStringAsFixed(2);
+                          },
+                          child: const Text('Max'),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 8),
+          ],
+
           // Other – note field
           if (_checkoutTab == _CheckoutTab.other) ...[
             TextField(
@@ -1090,43 +1327,44 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
             const SizedBox(height: 8),
           ],
 
-          // Amount row
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _tenderCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: InputDecoration(
-                    labelText: _checkoutTab == _CheckoutTab.cash
-                        ? 'Amount Tendered'
-                        : 'Amount',
-                    prefixText: '\$',
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  onChanged: (_) => setState(() {}),
-                ),
-              ),
-              if (_checkoutTab == _CheckoutTab.cash) ...[
-                const SizedBox(width: 8),
-                OutlinedButton(
-                  onPressed: () => setState(
-                    () => _tenderCtrl.text = remaining.toStringAsFixed(2),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 14,
+          // Amount row (hidden for gift card — amount entered in the lookup UI)
+          if (_checkoutTab != _CheckoutTab.giftCard)
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _tenderCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
                     ),
+                    decoration: InputDecoration(
+                      labelText: _checkoutTab == _CheckoutTab.cash
+                          ? 'Amount Tendered'
+                          : 'Amount',
+                      prefixText: '\$',
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    onChanged: (_) => setState(() {}),
                   ),
-                  child: const Text('Exact', style: TextStyle(fontSize: 12)),
                 ),
+                if (_checkoutTab == _CheckoutTab.cash) ...[
+                  const SizedBox(width: 8),
+                  OutlinedButton(
+                    onPressed: () => setState(
+                      () => _tenderCtrl.text = remaining.toStringAsFixed(2),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 14,
+                      ),
+                    ),
+                    child: const Text('Exact', style: TextStyle(fontSize: 12)),
+                  ),
+                ],
               ],
-            ],
-          ),
+            ),
 
           // Cash change display
           if (_checkoutTab == _CheckoutTab.cash && tender > 0) ...[
@@ -1168,7 +1406,17 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
           // Payment action button – label adapts to whether this payment settles the balance
           Builder(
             builder: (context) {
-              final willComplete = tender > 0 && tender >= remaining - 0.01;
+              final gcAmt = _checkoutTab == _CheckoutTab.giftCard
+                  ? (double.tryParse(_giftCardAmountCtrl.text) ?? 0.0)
+                  : 0.0;
+              final effectiveTender = _checkoutTab == _CheckoutTab.giftCard
+                  ? gcAmt
+                  : tender;
+              final gcReady =
+                  _checkoutTab != _CheckoutTab.giftCard ||
+                  (_lookedUpGiftCard != null && gcAmt > 0);
+              final willComplete =
+                  gcReady && effectiveTender >= remaining - 0.01;
               return ElevatedButton.icon(
                 icon: Icon(
                   willComplete
@@ -1191,6 +1439,32 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
               );
             },
           ),
+
+          // SMS toggle (only meaningful for transactions with a customer on file)
+          if (_selectedCustomer != null) ...[
+            const SizedBox(height: 8),
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              secondary: Icon(
+                _sendSmsThisTransaction
+                    ? Icons.sms_outlined
+                    : Icons.sms_failed_outlined,
+                size: 18,
+                color: _sendSmsThisTransaction ? Colors.teal : Colors.grey,
+              ),
+              title: const Text(
+                'Send thank-you SMS',
+                style: TextStyle(fontSize: 12),
+              ),
+              value:
+                  _sendSmsThisTransaction &&
+                  _selectedCustomer?.smsOptOut != true,
+              onChanged: _selectedCustomer?.smsOptOut == true
+                  ? null
+                  : (v) => setState(() => _sendSmsThisTransaction = v),
+            ),
+          ],
         ],
       ),
     );
@@ -1198,6 +1472,61 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
 
   Future<void> _addPaymentAndSave(_ScreenData data) async {
     final remaining = _balanceDue.clamp(0.0, double.infinity);
+
+    // ── Gift Card branch ────────────────────────────────────────────────────
+    if (_checkoutTab == _CheckoutTab.giftCard) {
+      final card = _lookedUpGiftCard;
+      if (card == null) {
+        _snack('Please look up a gift card first.', error: true);
+        return;
+      }
+      final amt = double.tryParse(_giftCardAmountCtrl.text);
+      if (amt == null || amt <= 0) {
+        _snack('Enter a valid amount to apply.', error: true);
+        return;
+      }
+      if (amt > card.balance + 0.001) {
+        _snack(
+          'Amount exceeds gift card balance (\$${card.balance.toStringAsFixed(2)}).',
+          error: true,
+        );
+        return;
+      }
+
+      final paid = amt.clamp(0.0, remaining);
+
+      // First save the transaction so we have an ID to pass to the deduction.
+      await _saveTransaction(asPending: false);
+
+      // Deduct from the gift card (best-effort — transaction already saved).
+      try {
+        await _repo.deductFromGiftCard(
+          card.id,
+          paid,
+          transactionId: null, // no doc ID available synchronously; acceptable
+          note: 'POS payment',
+        );
+      } catch (e) {
+        _snack('Gift card deducted failed: $e', error: true);
+      }
+
+      setState(() {
+        _payments.add(
+          Payment(
+            paymentMethodId: 'gift_card:${card.cardId}',
+            paymentMethodName: 'Gift Card (${card.cardId})',
+            amountPaid: paid,
+            paymentDate: DateTime.now(),
+          ),
+        );
+        _lookedUpGiftCard = null;
+        _giftCardIdCtrl.clear();
+        _giftCardAmountCtrl.clear();
+      });
+      return;
+    }
+
+    // ── Standard branch ─────────────────────────────────────────────────────
     final amt = double.tryParse(_tenderCtrl.text);
     if (amt == null || amt <= 0) {
       _snack('Enter a valid amount.', error: true);
@@ -1210,8 +1539,15 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
       pmId = 'cash';
       pmName = 'Cash';
     } else if (_checkoutTab == _CheckoutTab.creditCard) {
+      // Helcim — route to dedicated dialog
+      final method = _checkoutProcessor;
+      if (method != null &&
+          method.processorType == PaymentProcessorType.helcim) {
+        await _processHelcimPayment(amt, method);
+        return;
+      }
       pmId = _checkoutProcessor?.id ?? 'credit_card';
-      pmName = _checkoutProcessor?.name ?? 'Credit Card';
+      pmName = _checkoutProcessor?.merchantName ?? 'Credit Card';
     } else {
       final note = _otherNoteCtrl.text.trim();
       pmId = 'other';
@@ -1236,12 +1572,621 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
 
     // Open cash drawer immediately — before the receipt dialog so the
     // drawer is ready as the cashier collects payment.
-    if (_checkoutTab == _CheckoutTab.cash) {
+    if (_checkoutTab == _CheckoutTab.cash ||
+        _checkoutProcessor?.isCash == true) {
       CashDrawerService().openDrawerOnCashPayment();
     }
 
     // Save – status is auto-determined by balance
     await _saveTransaction(asPending: false);
+  }
+
+  // ── Reward points redemption ──────────────────────────────────────────────
+  Future<void> _applyRewardPoints() async {
+    final customer = _selectedCustomer;
+    if (customer == null) return;
+
+    final points = double.tryParse(_rewardPointsCtrl.text);
+    if (points == null || points <= 0) {
+      _snack('Enter a valid number of points.', error: true);
+      return;
+    }
+    final balance = _balanceDue.clamp(0.0, double.infinity);
+    final maxRedeemable = points
+        .clamp(0.0, customer.rewardPoints)
+        .clamp(0.0, balance);
+    if (maxRedeemable <= 0) {
+      _snack('No points available to redeem.', error: true);
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      // Deduct points from customer immediately; save tx first if needed
+      await _saveTransaction(asPending: false);
+      await _repo.adjustCustomerPoints(customer.id, -maxRedeemable);
+
+      // Refresh customer
+      final refreshed = await _repo.getCustomer(customer.id);
+      setState(() {
+        _payments.add(
+          Payment(
+            paymentMethodId: 'reward_points',
+            paymentMethodName: 'Reward Points',
+            amountPaid: maxRedeemable,
+            paymentDate: DateTime.now(),
+          ),
+        );
+        _selectedCustomer = refreshed ?? _selectedCustomer;
+        _rewardPointsCtrl.clear();
+      });
+
+      _snack(
+        '${maxRedeemable.toStringAsFixed(0)} points redeemed (\$${maxRedeemable.toStringAsFixed(2)} off).',
+      );
+    } catch (e) {
+      _snack('Failed to redeem points: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  // ── Helcim payment flow ───────────────────────────────────────────────────
+  Future<void> _processHelcimPayment(
+    double amount,
+    PaymentMethod method,
+  ) async {
+    final config = method.additionalConfig ?? {};
+    final accountGuid = config['accountGuid']?.toString() ?? '';
+    final terminalId = config['terminalId']?.toString();
+    final apiToken = method.processorApiKey;
+
+    if (accountGuid.isEmpty || apiToken.isEmpty) {
+      _snack(
+        'Helcim is not fully configured. Add Account GUID and API Token in Admin → Payment Methods.',
+        error: true,
+      );
+      return;
+    }
+
+    final helcim = HelcimService(
+      apiToken: apiToken,
+      accountGuid: accountGuid,
+      terminalId: terminalId,
+    );
+
+    if (!mounted) return;
+    final result = await showDialog<_HelcimPaymentDialogResult?>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _HelcimPaymentDialog(
+        amount: amount,
+        helcim: helcim,
+        merchantName: method.merchantName,
+      ),
+    );
+
+    if (result == null || !result.confirmed) return;
+
+    setState(() => _isSaving = true);
+    try {
+      final paid = amount.clamp(0.0, _balanceDue.clamp(0.0, double.infinity));
+      setState(() {
+        _payments.add(
+          Payment(
+            paymentMethodId: method.id,
+            paymentMethodName: method.merchantName,
+            amountPaid: paid,
+            paymentDate: DateTime.now(),
+          ),
+        );
+        _tenderCtrl.clear();
+      });
+      await _saveTransaction(asPending: false);
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  // ── Post-payment: award points + SMS survey ───────────────────────────────
+  Future<void> _handlePostPayment(Transaction tx) async {
+    // Award reward points
+    final customer = _selectedCustomer;
+    if (customer != null && _rewardSettings.enabled) {
+      final cashPaid = tx.payments
+          .where(
+            (p) =>
+                p.paymentMethodId != 'reward_points' &&
+                !p.paymentMethodId.startsWith('gift_card:'),
+          )
+          .fold<double>(0, (s, p) => s + p.amountPaid);
+      final pointsEarned = _rewardSettings.pointsEarned(cashPaid);
+      if (pointsEarned > 0) {
+        try {
+          await _repo.adjustCustomerPoints(
+            customer.id,
+            pointsEarned.toDouble(),
+          );
+          if (mounted) {
+            _snack('${customer.name} earned $pointsEarned reward point(s)!');
+          }
+        } catch (_) {}
+      }
+    }
+
+    // SMS survey
+    await _showPostPaymentSurvey(tx);
+  }
+
+  Future<void> _showPostPaymentSurvey(Transaction tx) async {
+    if (!mounted) return;
+
+    SmsSettings smsSettings;
+    try {
+      smsSettings = await _repo.getSmsSettings();
+    } catch (_) {
+      return;
+    }
+    if (!smsSettings.enabled) return;
+
+    final customer = _selectedCustomer;
+    if (customer?.smsOptOut == true) return;
+    if (!_sendSmsThisTransaction) return;
+
+    final customerName = customer?.name ?? tx.customerName ?? 'Valued Customer';
+    final customerPhone = customer?.phone ?? '';
+
+    if (!mounted) return;
+    final rating = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _SurveyRatingDialog(customerName: customerName),
+    );
+    if (rating == null) return;
+
+    if (rating) {
+      await _handlePositiveFeedback(
+        tx: tx,
+        smsSettings: smsSettings,
+        customerName: customerName,
+        customerPhone: customerPhone,
+        customer: customer,
+      );
+    } else {
+      await _handleNegativeFeedback(
+        tx: tx,
+        smsSettings: smsSettings,
+        customerName: customerName,
+        customerPhone: customerPhone,
+        customer: customer,
+      );
+    }
+  }
+
+  Future<void> _handlePositiveFeedback({
+    required Transaction tx,
+    required SmsSettings smsSettings,
+    required String customerName,
+    required String customerPhone,
+    Customer? customer,
+  }) async {
+    if (!mounted) return;
+    final msg = smsSettings.buildPositiveMessage(customerName);
+    final result = await showDialog<_SmsPreviewResult?>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _SmsPreviewDialog(
+        title: 'Send Thank-You SMS',
+        subtitle:
+            'The customer left a positive rating. Review and send the message below.',
+        initialMessage: msg,
+        phoneNumber: customerPhone,
+        positiveIcon: true,
+      ),
+    );
+    if (result == null || !result.shouldSend || customerPhone.isEmpty) return;
+
+    final sms = SmsService(
+      accountSid: smsSettings.accountSid,
+      authToken: smsSettings.authToken,
+      fromNumber: smsSettings.fromNumber,
+    );
+    final sendResult = await sms.send(
+      toNumber: customerPhone,
+      body: result.message,
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(SmsService.resultMessage(sendResult)),
+          backgroundColor: sendResult == SmsSendResult.success
+              ? Colors.green
+              : Colors.orange,
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleNegativeFeedback({
+    required Transaction tx,
+    required SmsSettings smsSettings,
+    required String customerName,
+    required String customerPhone,
+    Customer? customer,
+  }) async {
+    if (!mounted) return;
+    final feedbackResult = await showDialog<_NegativeFeedbackResult?>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _NegativeFeedbackDialog(
+        customerName: customerName,
+        negativeMessage: smsSettings.buildNegativeMessage(customerName),
+        customerPhone: customerPhone,
+      ),
+    );
+    if (feedbackResult == null) return;
+
+    bool smsSent = false;
+    if (feedbackResult.sendSms && customerPhone.isNotEmpty) {
+      final sms = SmsService(
+        accountSid: smsSettings.accountSid,
+        authToken: smsSettings.authToken,
+        fromNumber: smsSettings.fromNumber,
+      );
+      final sendResult = await sms.send(
+        toNumber: customerPhone,
+        body: feedbackResult.smsMessage,
+      );
+      smsSent = sendResult == SmsSendResult.success;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(SmsService.resultMessage(sendResult)),
+            backgroundColor: smsSent ? Colors.green : Colors.orange,
+          ),
+        );
+      }
+    }
+
+    if (feedbackResult.feedbackText.trim().isNotEmpty) {
+      try {
+        await _repo.saveCustomerFeedback(
+          CustomerFeedback(
+            id: '',
+            transactionId: tx.id,
+            customerId: customer?.id,
+            customerName: customerName,
+            customerPhone: customerPhone,
+            feedbackText: feedbackResult.feedbackText.trim(),
+            smsSent: smsSent,
+            createdAt: DateTime.now(),
+          ),
+        );
+      } catch (_) {}
+    }
+  }
+
+  // ── Sell Gift Card dialog ─────────────────────────────────────────────────
+  Future<void> _showSellGiftCardDialog() async {
+    final cardIdCtrl = TextEditingController();
+    final amountCtrl = TextEditingController();
+    final notesCtrl = TextEditingController();
+    DateTime? expiresAt;
+    String? error;
+    bool busy = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.add_card, color: Colors.teal),
+              SizedBox(width: 8),
+              Text('Sell a Gift Card'),
+            ],
+          ),
+          content: SizedBox(
+            width: 380,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'This will issue a new gift card and add its value to the current transaction bill.',
+                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                  const SizedBox(height: 14),
+                  if (error != null)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Text(
+                        error!,
+                        style: TextStyle(color: Colors.red.shade700),
+                      ),
+                    ),
+                  TextField(
+                    controller: cardIdCtrl,
+                    textCapitalization: TextCapitalization.characters,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Card ID *',
+                      hintText: 'e.g. GC-001234',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.credit_card),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: amountCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Card Value *',
+                      prefixText: '\$',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.attach_money),
+                      helperText: 'Amount charged to customer & loaded on card',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          expiresAt == null
+                              ? 'No expiration date'
+                              : 'Expires: ${expiresAt!.month}/${expiresAt!.day}/${expiresAt!.year}',
+                          style: TextStyle(
+                            color: Colors.grey.shade700,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        icon: const Icon(Icons.calendar_today, size: 16),
+                        label: Text(
+                          expiresAt == null ? 'Set Expiry' : 'Change',
+                        ),
+                        onPressed: () async {
+                          final picked = await showDatePicker(
+                            context: ctx,
+                            initialDate: DateTime.now().add(
+                              const Duration(days: 365),
+                            ),
+                            firstDate: DateTime.now().add(
+                              const Duration(days: 1),
+                            ),
+                            lastDate: DateTime.now().add(
+                              const Duration(days: 365 * 10),
+                            ),
+                          );
+                          if (picked != null) setDlg(() => expiresAt = picked);
+                        },
+                      ),
+                      if (expiresAt != null)
+                        IconButton(
+                          icon: const Icon(Icons.clear, size: 16),
+                          tooltip: 'Remove expiry',
+                          onPressed: () => setDlg(() => expiresAt = null),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: notesCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Notes (optional)',
+                      hintText: 'e.g. customer name, occasion',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: busy ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              icon: busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.add_shopping_cart, size: 18),
+              label: Text(busy ? 'Adding...' : 'Issue & Add to Bill'),
+              onPressed: busy
+                  ? null
+                  : () async {
+                      final cardId = cardIdCtrl.text.trim();
+                      final amount = double.tryParse(amountCtrl.text.trim());
+                      if (cardId.isEmpty) {
+                        setDlg(() => error = 'Please enter a Card ID.');
+                        return;
+                      }
+                      if (amount == null || amount <= 0) {
+                        setDlg(
+                          () => error = 'Please enter a valid card value.',
+                        );
+                        return;
+                      }
+                      setDlg(() => busy = true);
+                      try {
+                        final existing = await _repo.getGiftCardByCardId(
+                          cardId,
+                        );
+                        if (existing != null) {
+                          setDlg(() {
+                            busy = false;
+                            error =
+                                'Card "$cardId" already exists. Use "Reload" in Gift Card admin to add balance.';
+                          });
+                          return;
+                        }
+                        final now = DateTime.now();
+                        // Ensure the transaction exists before adding the item
+                        if (_savedTransactionId == null ||
+                            _savedTransactionId!.isEmpty) {
+                          await _saveTransaction(asPending: true);
+                        }
+                        if (_savedTransactionId == null ||
+                            _savedTransactionId!.isEmpty) {
+                          setDlg(() {
+                            busy = false;
+                            error = 'Could not save transaction.';
+                          });
+                          return;
+                        }
+                        final card = GiftCard(
+                          id: '',
+                          cardId: cardId,
+                          balance: amount,
+                          loadedAmount: amount,
+                          issuedAt: now,
+                          expiresAt: expiresAt,
+                          isActive: true,
+                          notes: notesCtrl.text.trim().isEmpty
+                              ? null
+                              : notesCtrl.text.trim(),
+                          history: [
+                            GiftCardEntry(
+                              type: GiftCardEntryType.issued,
+                              amount: amount,
+                              date: now,
+                              transactionId: _savedTransactionId,
+                              note: 'Sold at POS',
+                            ),
+                          ],
+                          updatedAt: now,
+                        );
+                        await _repo.createGiftCard(card);
+                        // Add gift card sale as a line item
+                        final item = TransactionItem(
+                          id: now.millisecondsSinceEpoch.toString(),
+                          itemId: 'gift_card_sale',
+                          itemName: 'Gift Card ($cardId)',
+                          employeeId: '',
+                          employeeName: 'Gift Card Sales',
+                          itemPrice: amount,
+                          quantity: 1,
+                          subtotal: amount,
+                        );
+                        await _repo.addGiftCardSaleToTransaction(
+                          _savedTransactionId!,
+                          item,
+                          amount,
+                        );
+                        if (ctx.mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Gift card $cardId (\$${amount.toStringAsFixed(2)}) issued and added to bill.',
+                              ),
+                              backgroundColor: Colors.teal,
+                            ),
+                          );
+                        }
+                        // Reload the transaction state
+                        final updated = await _repo.getTransaction(
+                          _savedTransactionId!,
+                        );
+                        if (mounted && updated != null) {
+                          setState(() {
+                            _lineItems.clear();
+                            _discounts
+                              ..clear()
+                              ..addAll(updated.discounts);
+                            _payments
+                              ..clear()
+                              ..addAll(updated.payments);
+                          });
+                        }
+                      } catch (e) {
+                        setDlg(() {
+                          busy = false;
+                          error = 'Failed: $e';
+                        });
+                      }
+                    },
+            ),
+          ],
+        ),
+      ),
+    );
+
+    cardIdCtrl.dispose();
+    amountCtrl.dispose();
+    notesCtrl.dispose();
+  }
+
+  Future<void> _lookUpGiftCard(double remaining) async {
+    final cardId = _giftCardIdCtrl.text.trim();
+    if (cardId.isEmpty) {
+      _snack('Enter a gift card ID.', error: true);
+      return;
+    }
+    setState(() => _isLookingUpCard = true);
+    try {
+      final card = await _repo.getGiftCardByCardId(cardId);
+      if (card == null) {
+        _snack('Gift card "$cardId" not found.', error: true);
+        setState(() {
+          _lookedUpGiftCard = null;
+          _isLookingUpCard = false;
+        });
+        return;
+      }
+      if (!card.isActive) {
+        _snack('This gift card is inactive.', error: true);
+        setState(() {
+          _lookedUpGiftCard = null;
+          _isLookingUpCard = false;
+        });
+        return;
+      }
+      if (card.isExpired) {
+        _snack('This gift card has expired.', error: true);
+        setState(() {
+          _lookedUpGiftCard = null;
+          _isLookingUpCard = false;
+        });
+        return;
+      }
+      if (card.balance <= 0) {
+        _snack('This gift card has no remaining balance.', error: true);
+        setState(() {
+          _lookedUpGiftCard = null;
+          _isLookingUpCard = false;
+        });
+        return;
+      }
+      final maxApply = card.balance.clamp(0.0, remaining);
+      setState(() {
+        _lookedUpGiftCard = card;
+        _isLookingUpCard = false;
+        _giftCardAmountCtrl.text = maxApply.toStringAsFixed(2);
+      });
+    } catch (e) {
+      _snack('Error: $e', error: true);
+      setState(() => _isLookingUpCard = false);
+    }
   }
 
   Widget _payTabBtn({
@@ -1300,10 +2245,7 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
     final categories = (results[1] as List).cast<ItemCategory>();
     final employees = (results[2] as List).cast<Employee>();
     final customers = (results[3] as List).cast<Customer>();
-    final paymentMethods = (results[4] as List)
-        .cast<PaymentMethod>()
-        .map((m) => PaymentMethodInfo(id: m.id, name: m.merchantName))
-        .toList();
+    final paymentMethods = (results[4] as List).cast<PaymentMethod>();
 
     return _ScreenData(
       items: items,
@@ -1319,6 +2261,9 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
     _searchCtrl.dispose();
     _tenderCtrl.dispose();
     _otherNoteCtrl.dispose();
+    _giftCardIdCtrl.dispose();
+    _giftCardAmountCtrl.dispose();
+    _rewardPointsCtrl.dispose();
     super.dispose();
   }
 }
@@ -1331,7 +2276,7 @@ class _ScreenData {
   final List<ItemCategory> categories;
   final List<Employee> employees;
   final List<Customer> customers;
-  final List<PaymentMethodInfo> paymentMethods;
+  final List<PaymentMethod> paymentMethods;
 
   _ScreenData({
     required this.items,
@@ -1342,13 +2287,7 @@ class _ScreenData {
   });
 }
 
-enum _CheckoutTab { cash, creditCard, other }
-
-class PaymentMethodInfo {
-  final String id;
-  final String name;
-  PaymentMethodInfo({required this.id, required this.name});
-}
+enum _CheckoutTab { cash, creditCard, giftCard, other }
 
 // ---------------------------------------------------------------------------
 // Small reusable widgets
@@ -1729,6 +2668,567 @@ class _ActionButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// =============================================================================
+// HELCIM PAYMENT DIALOG
+// =============================================================================
+
+class _HelcimPaymentDialogResult {
+  final bool confirmed;
+  final String? helcimTransactionId;
+  const _HelcimPaymentDialogResult({
+    required this.confirmed,
+    this.helcimTransactionId,
+  });
+}
+
+class _HelcimPaymentDialog extends StatefulWidget {
+  final double amount;
+  final HelcimService helcim;
+  final String merchantName;
+
+  const _HelcimPaymentDialog({
+    required this.amount,
+    required this.helcim,
+    required this.merchantName,
+  });
+
+  @override
+  State<_HelcimPaymentDialog> createState() => _HelcimPaymentDialogState();
+}
+
+class _HelcimPaymentDialogState extends State<_HelcimPaymentDialog> {
+  final _txIdController = TextEditingController();
+  bool _isProcessing = false;
+  String? _errorMessage;
+  String? _checkoutToken;
+
+  @override
+  void dispose() {
+    _txIdController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initHelcimPaySession() async {
+    setState(() {
+      _isProcessing = true;
+      _errorMessage = null;
+    });
+    final amountCents = (widget.amount * 100).round();
+    final result = await widget.helcim.initializeHelcimPaySession(
+      amountInCents: amountCents,
+    );
+    if (!mounted) return;
+    if (result.success) {
+      setState(() {
+        _isProcessing = false;
+        _checkoutToken = result.checkoutToken;
+      });
+    } else {
+      setState(() {
+        _isProcessing = false;
+        _errorMessage =
+            result.errorMessage ?? 'Failed to initialize HelcimPay.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.credit_card, size: 20),
+          const SizedBox(width: 8),
+          Text('Helcim — \$${widget.amount.toStringAsFixed(2)}'),
+        ],
+      ),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Merchant: ${widget.merchantName}',
+                style: const TextStyle(fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Option A — Card Terminal',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Process the payment on your Helcim card reader / terminal, '
+                'then enter the Helcim Transaction ID shown on the receipt.',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _txIdController,
+                decoration: const InputDecoration(
+                  labelText: 'Helcim Transaction ID (from terminal)',
+                  hintText: 'e.g. 12345678',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+              const Text(
+                'Option B — HelcimPay Hosted Checkout',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Generate a secure HelcimPay checkout session. Open the returned '
+                'token URL in a browser or WebView for the customer to enter card details.',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.open_in_browser, size: 18),
+                  label: const Text('Initialize HelcimPay Session'),
+                  onPressed: _isProcessing ? null : _initHelcimPaySession,
+                ),
+              ),
+              if (_isProcessing) ...[
+                const SizedBox(height: 12),
+                const Row(
+                  children: [
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 10),
+                    Text('Contacting Helcim…'),
+                  ],
+                ),
+              ],
+              if (_checkoutToken != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Checkout token ready:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      SelectableText(
+                        _checkoutToken!,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'After the customer completes payment, enter the Helcim '
+                        'Transaction ID in the field above and tap Confirm.',
+                        style: TextStyle(fontSize: 11, color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Text(
+                    _errorMessage!,
+                    style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(
+            context,
+            const _HelcimPaymentDialogResult(confirmed: false),
+          ),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          icon: const Icon(Icons.check_circle_outline, size: 18),
+          label: const Text('Confirm Payment'),
+          onPressed: _isProcessing
+              ? null
+              : () => Navigator.pop(
+                  context,
+                  _HelcimPaymentDialogResult(
+                    confirmed: true,
+                    helcimTransactionId: _txIdController.text.trim().isEmpty
+                        ? null
+                        : _txIdController.text.trim(),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+// =============================================================================
+// SURVEY + SMS DIALOGS
+// =============================================================================
+
+class _SurveyRatingDialog extends StatelessWidget {
+  final String customerName;
+  const _SurveyRatingDialog({required this.customerName});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('How was their experience?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Ask $customerName to rate their visit today.',
+            style: const TextStyle(fontSize: 15),
+          ),
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _RatingButton(
+                icon: Icons.thumb_up_rounded,
+                label: 'Great!',
+                color: Colors.green,
+                onTap: () => Navigator.pop(context, true),
+              ),
+              _RatingButton(
+                icon: Icons.thumb_down_rounded,
+                label: 'Not great',
+                color: Colors.red,
+                onTap: () => Navigator.pop(context, false),
+              ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('Skip'),
+        ),
+      ],
+    );
+  }
+}
+
+class _RatingButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _RatingButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          border: Border.all(color: color.withValues(alpha: 0.4)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 40, color: color),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(fontWeight: FontWeight.bold, color: color),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SmsPreviewResult {
+  final bool shouldSend;
+  final String message;
+  const _SmsPreviewResult({required this.shouldSend, required this.message});
+}
+
+class _SmsPreviewDialog extends StatefulWidget {
+  final String title;
+  final String subtitle;
+  final String initialMessage;
+  final String phoneNumber;
+  final bool positiveIcon;
+
+  const _SmsPreviewDialog({
+    required this.title,
+    required this.subtitle,
+    required this.initialMessage,
+    required this.phoneNumber,
+    this.positiveIcon = true,
+  });
+
+  @override
+  State<_SmsPreviewDialog> createState() => _SmsPreviewDialogState();
+}
+
+class _SmsPreviewDialogState extends State<_SmsPreviewDialog> {
+  late final TextEditingController _msgCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _msgCtrl = TextEditingController(text: widget.initialMessage);
+  }
+
+  @override
+  void dispose() {
+    _msgCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(
+        children: [
+          Icon(
+            widget.positiveIcon ? Icons.star_rounded : Icons.message_rounded,
+            color: widget.positiveIcon ? Colors.amber : Colors.blue,
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(widget.title)),
+        ],
+      ),
+      content: SizedBox(
+        width: 480,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.subtitle,
+              style: const TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            if (widget.phoneNumber.isNotEmpty) ...[
+              Text(
+                'To: ${widget.phoneNumber}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+            TextField(
+              controller: _msgCtrl,
+              maxLines: 6,
+              decoration: const InputDecoration(
+                labelText: 'Message',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+            ),
+            if (widget.phoneNumber.isEmpty) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'No phone number on file — SMS cannot be sent.',
+                style: TextStyle(color: Colors.orange, fontSize: 12),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(
+            context,
+            const _SmsPreviewResult(shouldSend: false, message: ''),
+          ),
+          child: const Text('Skip'),
+        ),
+        if (widget.phoneNumber.isNotEmpty)
+          FilledButton.icon(
+            icon: const Icon(Icons.send),
+            label: const Text('Send SMS'),
+            onPressed: () => Navigator.pop(
+              context,
+              _SmsPreviewResult(shouldSend: true, message: _msgCtrl.text),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _NegativeFeedbackResult {
+  final String feedbackText;
+  final bool sendSms;
+  final String smsMessage;
+  const _NegativeFeedbackResult({
+    required this.feedbackText,
+    required this.sendSms,
+    required this.smsMessage,
+  });
+}
+
+class _NegativeFeedbackDialog extends StatefulWidget {
+  final String customerName;
+  final String negativeMessage;
+  final String customerPhone;
+
+  const _NegativeFeedbackDialog({
+    required this.customerName,
+    required this.negativeMessage,
+    required this.customerPhone,
+  });
+
+  @override
+  State<_NegativeFeedbackDialog> createState() =>
+      _NegativeFeedbackDialogState();
+}
+
+class _NegativeFeedbackDialogState extends State<_NegativeFeedbackDialog> {
+  late final TextEditingController _feedbackCtrl;
+  late final TextEditingController _msgCtrl;
+  bool _sendSms = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _feedbackCtrl = TextEditingController();
+    _msgCtrl = TextEditingController(text: widget.negativeMessage);
+  }
+
+  @override
+  void dispose() {
+    _feedbackCtrl.dispose();
+    _msgCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.sentiment_dissatisfied, color: Colors.red),
+          SizedBox(width: 8),
+          Text('Capture Feedback'),
+        ],
+      ),
+      content: SizedBox(
+        width: 480,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "We're sorry ${widget.customerName}'s experience wasn't perfect. "
+              'Please note their feedback so we can improve.',
+              style: const TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _feedbackCtrl,
+              maxLines: 4,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Customer Feedback',
+                hintText: 'What could we have done better?',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
+            if (widget.customerPhone.isNotEmpty) ...[
+              CheckboxListTile(
+                value: _sendSms,
+                onChanged: (v) => setState(() => _sendSms = v ?? false),
+                title: const Text('Send a thank-you SMS'),
+                subtitle: Text('To: ${widget.customerPhone}'),
+                contentPadding: EdgeInsets.zero,
+              ),
+              if (_sendSms) ...[
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _msgCtrl,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'SMS Message',
+                    border: OutlineInputBorder(),
+                    alignLabelWithHint: true,
+                  ),
+                ),
+              ],
+            ] else
+              const Text(
+                'No phone number on file — SMS will not be sent.',
+                style: TextStyle(color: Colors.orange, fontSize: 12),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(
+            context,
+            _NegativeFeedbackResult(
+              feedbackText: _feedbackCtrl.text,
+              sendSms: _sendSms && widget.customerPhone.isNotEmpty,
+              smsMessage: _msgCtrl.text,
+            ),
+          ),
+          child: const Text('Save Feedback'),
+        ),
+      ],
     );
   }
 }

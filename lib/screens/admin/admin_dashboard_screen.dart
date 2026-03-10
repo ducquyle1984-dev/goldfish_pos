@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:goldfish_pos/providers/touchscreen_provider.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/screens/admin/booking_settings_screen.dart';
 import 'package:goldfish_pos/screens/admin/business_settings_screen.dart';
@@ -14,6 +15,8 @@ import 'package:goldfish_pos/screens/admin/reward_settings_screen.dart';
 import 'package:goldfish_pos/screens/admin/sms_settings_screen.dart';
 import 'package:goldfish_pos/screens/admin/system_admin_dashboard_screen.dart';
 import 'package:goldfish_pos/screens/admin/import_management_screen.dart';
+import 'package:goldfish_pos/widgets/pin_numpad.dart';
+import 'package:provider/provider.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
@@ -21,6 +24,7 @@ class AdminDashboardScreen extends StatelessWidget {
   // ── System Admin PIN gate ─────────────────────────────────────────────────
   Future<void> _openSystemAdmin(BuildContext context) async {
     final repo = PosRepository();
+    final touchscreen = context.read<TouchscreenProvider>().enabled;
     String? error;
     final pinCtrl = TextEditingController();
 
@@ -28,67 +32,70 @@ class AdminDashboardScreen extends StatelessWidget {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.admin_panel_settings, color: Colors.deepOrange),
-              SizedBox(width: 8),
-              Text('System Admin Access'),
-            ],
-          ),
-          content: SizedBox(
-            width: 300,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+        builder: (ctx, setDialogState) {
+          Future<void> submit() async {
+            final correct = await repo.getSysAdminPin();
+            if (pinCtrl.text.trim() == correct) {
+              if (ctx.mounted) Navigator.pop(ctx, true);
+            } else {
+              setDialogState(() => error = 'Incorrect PIN.');
+              pinCtrl.clear();
+            }
+          }
+
+          return AlertDialog(
+            title: const Row(
               children: [
-                const Text(
-                  'Enter the System Admin PIN to continue.',
-                  style: TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: pinCtrl,
-                  obscureText: true,
-                  keyboardType: TextInputType.number,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    labelText: 'PIN',
-                    border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.lock_outline),
-                    errorText: error,
-                  ),
-                  onSubmitted: (_) async {
-                    final correct = await repo.getSysAdminPin();
-                    if (pinCtrl.text.trim() == correct) {
-                      if (ctx.mounted) Navigator.pop(ctx, true);
-                    } else {
-                      setDialogState(() => error = 'Incorrect PIN.');
-                      pinCtrl.clear();
-                    }
-                  },
-                ),
+                Icon(Icons.admin_panel_settings, color: Colors.deepOrange),
+                SizedBox(width: 8),
+                Text('System Admin Access'),
               ],
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
+            content: SizedBox(
+              width: touchscreen ? 260 : 300,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Enter the System Admin PIN to continue.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: pinCtrl,
+                    obscureText: true,
+                    keyboardType: TextInputType.number,
+                    autofocus: !touchscreen,
+                    readOnly: touchscreen,
+                    decoration: InputDecoration(
+                      labelText: 'PIN',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.lock_outline),
+                      errorText: error,
+                    ),
+                    onSubmitted: touchscreen ? null : (_) => submit(),
+                  ),
+                  if (touchscreen) ...[
+                    const SizedBox(height: 16),
+                    PinNumpad(
+                      onDigit: (d) =>
+                          setDialogState(() => pinNumpadAppend(pinCtrl, d)),
+                      onDelete: () =>
+                          setDialogState(() => pinNumpadDelete(pinCtrl)),
+                    ),
+                  ],
+                ],
+              ),
             ),
-            FilledButton(
-              onPressed: () async {
-                final correct = await repo.getSysAdminPin();
-                if (pinCtrl.text.trim() == correct) {
-                  if (ctx.mounted) Navigator.pop(ctx, true);
-                } else {
-                  setDialogState(() => error = 'Incorrect PIN.');
-                  pinCtrl.clear();
-                }
-              },
-              child: const Text('Enter'),
-            ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(onPressed: submit, child: const Text('Enter')),
+            ],
+          );
+        },
       ),
     );
     pinCtrl.dispose();

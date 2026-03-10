@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:goldfish_pos/providers/touchscreen_provider.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/screens/admin/twilio_credentials_screen.dart';
+import 'package:goldfish_pos/widgets/pin_numpad.dart';
+import 'package:provider/provider.dart';
 
 /// The System Admin area is PIN-gated and contains settings that must be
 /// restricted from regular admins and receptionists (e.g. Twilio API keys).
@@ -131,13 +134,32 @@ class _PinChangeDialog extends StatefulWidget {
 class _PinChangeDialogState extends State<_PinChangeDialog> {
   final _newPinCtrl = TextEditingController();
   final _confirmPinCtrl = TextEditingController();
+  final _newPinFocus = FocusNode();
+  final _confirmPinFocus = FocusNode();
+  // Which controller the numpad should target (starts with newPin).
+  late TextEditingController _activeCtrl;
   bool _saving = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _activeCtrl = _newPinCtrl;
+    _newPinFocus.addListener(() {
+      if (_newPinFocus.hasFocus) setState(() => _activeCtrl = _newPinCtrl);
+    });
+    _confirmPinFocus.addListener(() {
+      if (_confirmPinFocus.hasFocus)
+        setState(() => _activeCtrl = _confirmPinCtrl);
+    });
+  }
 
   @override
   void dispose() {
     _newPinCtrl.dispose();
     _confirmPinCtrl.dispose();
+    _newPinFocus.dispose();
+    _confirmPinFocus.dispose();
     super.dispose();
   }
 
@@ -176,6 +198,7 @@ class _PinChangeDialogState extends State<_PinChangeDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final touchscreen = context.read<TouchscreenProvider>().enabled;
     return AlertDialog(
       title: Row(
         children: [
@@ -185,15 +208,17 @@ class _PinChangeDialogState extends State<_PinChangeDialog> {
         ],
       ),
       content: SizedBox(
-        width: 320,
+        width: touchscreen ? 260 : 320,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: _newPinCtrl,
+              focusNode: _newPinFocus,
               obscureText: true,
               keyboardType: TextInputType.number,
-              autofocus: true,
+              autofocus: !touchscreen,
+              readOnly: touchscreen,
               decoration: const InputDecoration(
                 labelText: 'New PIN',
                 border: OutlineInputBorder(),
@@ -203,8 +228,10 @@ class _PinChangeDialogState extends State<_PinChangeDialog> {
             const SizedBox(height: 12),
             TextField(
               controller: _confirmPinCtrl,
+              focusNode: _confirmPinFocus,
               obscureText: true,
               keyboardType: TextInputType.number,
+              readOnly: touchscreen,
               decoration: const InputDecoration(
                 labelText: 'Confirm PIN',
                 border: OutlineInputBorder(),
@@ -214,6 +241,30 @@ class _PinChangeDialogState extends State<_PinChangeDialog> {
             if (_error != null) ...[
               const SizedBox(height: 10),
               Text(_error!, style: const TextStyle(color: Colors.red)),
+            ],
+            if (touchscreen) ...[
+              const SizedBox(height: 16),
+              // Tabs to switch which field the numpad targets
+              Row(
+                children: [
+                  _FieldTab(
+                    label: 'New PIN',
+                    active: _activeCtrl == _newPinCtrl,
+                    onTap: () => setState(() => _activeCtrl = _newPinCtrl),
+                  ),
+                  const SizedBox(width: 8),
+                  _FieldTab(
+                    label: 'Confirm PIN',
+                    active: _activeCtrl == _confirmPinCtrl,
+                    onTap: () => setState(() => _activeCtrl = _confirmPinCtrl),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              PinNumpad(
+                onDigit: (d) => setState(() => pinNumpadAppend(_activeCtrl, d)),
+                onDelete: () => setState(() => pinNumpadDelete(_activeCtrl)),
+              ),
             ],
           ],
         ),
@@ -234,6 +285,47 @@ class _PinChangeDialogState extends State<_PinChangeDialog> {
               : const Text('Save PIN'),
         ),
       ],
+    );
+  }
+}
+
+// ─── Field-selector tab for numpad ────────────────────────────────────────────
+
+class _FieldTab extends StatelessWidget {
+  const _FieldTab({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          decoration: BoxDecoration(
+            color: active ? cs.primary : cs.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: TextStyle(
+              color: active ? cs.onPrimary : cs.onSurface,
+              fontSize: 13,
+              fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

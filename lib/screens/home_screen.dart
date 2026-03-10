@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:goldfish_pos/providers/theme_provider.dart';
+import 'package:goldfish_pos/providers/touchscreen_provider.dart';
 import 'package:goldfish_pos/widgets/animated_goldfish.dart';
 import 'package:goldfish_pos/models/appointment_model.dart';
 import 'package:goldfish_pos/models/customer_model.dart';
@@ -15,6 +16,7 @@ import 'package:goldfish_pos/screens/reports_screen.dart';
 import 'package:goldfish_pos/screens/transaction_create_screen.dart';
 import 'package:goldfish_pos/services/cash_drawer_service.dart';
 import 'package:goldfish_pos/widgets/customer_check_in_dialog.dart';
+import 'package:goldfish_pos/widgets/pin_numpad.dart';
 import 'package:goldfish_pos/widgets/quick_book_dialog.dart';
 import 'package:intl/intl.dart';
 
@@ -42,6 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// enters a matching admin PIN or system admin PIN.
   Future<void> _navigateWithAdminPin(int target) async {
     final repo = _repo;
+    final touchscreen = context.read<TouchscreenProvider>().enabled;
     String? error;
     final pinCtrl = TextEditingController();
 
@@ -49,75 +52,74 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.lock_outline, color: Colors.blue),
-              SizedBox(width: 8),
-              Text('Admin Access'),
-            ],
-          ),
-          content: SizedBox(
-            width: 300,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+        builder: (ctx, setDialogState) {
+          Future<void> submit() async {
+            final entered = pinCtrl.text.trim();
+            final results = await Future.wait([
+              repo.getAdminPin(),
+              repo.getSysAdminPin(),
+            ]);
+            if (entered == results[0] || entered == results[1]) {
+              if (ctx.mounted) Navigator.pop(ctx, true);
+            } else {
+              setDialogState(() => error = 'Incorrect PIN.');
+              pinCtrl.clear();
+            }
+          }
+
+          return AlertDialog(
+            title: const Row(
               children: [
-                const Text(
-                  'Enter the Admin PIN to access settings.',
-                  style: TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: pinCtrl,
-                  obscureText: true,
-                  keyboardType: TextInputType.number,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    labelText: 'PIN',
-                    border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.pin_outlined),
-                    errorText: error,
-                  ),
-                  onSubmitted: (_) async {
-                    final entered = pinCtrl.text.trim();
-                    final results = await Future.wait([
-                      repo.getAdminPin(),
-                      repo.getSysAdminPin(),
-                    ]);
-                    if (entered == results[0] || entered == results[1]) {
-                      if (ctx.mounted) Navigator.pop(ctx, true);
-                    } else {
-                      setDialogState(() => error = 'Incorrect PIN.');
-                      pinCtrl.clear();
-                    }
-                  },
-                ),
+                Icon(Icons.lock_outline, color: Colors.blue),
+                SizedBox(width: 8),
+                Text('Admin Access'),
               ],
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
+            content: SizedBox(
+              width: touchscreen ? 260 : 300,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Enter the Admin PIN to access settings.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: pinCtrl,
+                    obscureText: true,
+                    keyboardType: TextInputType.number,
+                    autofocus: !touchscreen,
+                    readOnly: touchscreen,
+                    decoration: InputDecoration(
+                      labelText: 'PIN',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.pin_outlined),
+                      errorText: error,
+                    ),
+                    onSubmitted: touchscreen ? null : (_) => submit(),
+                  ),
+                  if (touchscreen) ...[
+                    const SizedBox(height: 16),
+                    PinNumpad(
+                      onDigit: (d) =>
+                          setDialogState(() => pinNumpadAppend(pinCtrl, d)),
+                      onDelete: () =>
+                          setDialogState(() => pinNumpadDelete(pinCtrl)),
+                    ),
+                  ],
+                ],
+              ),
             ),
-            FilledButton(
-              onPressed: () async {
-                final entered = pinCtrl.text.trim();
-                final results = await Future.wait([
-                  repo.getAdminPin(),
-                  repo.getSysAdminPin(),
-                ]);
-                if (entered == results[0] || entered == results[1]) {
-                  if (ctx.mounted) Navigator.pop(ctx, true);
-                } else {
-                  setDialogState(() => error = 'Incorrect PIN.');
-                  pinCtrl.clear();
-                }
-              },
-              child: const Text('Enter'),
-            ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(onPressed: submit, child: const Text('Enter')),
+            ],
+          );
+        },
       ),
     );
     pinCtrl.dispose();

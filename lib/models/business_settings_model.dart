@@ -19,12 +19,17 @@ class BusinessSettings {
   /// Stored here for reference; actual taxAmount is set per-transaction.
   final double taxRate;
 
+  /// Whether this device is a touchscreen POS terminal.
+  /// When true, PIN entry dialogs show an on-screen number pad.
+  final bool touchscreenEnabled;
+
   const BusinessSettings({
     this.salonName = 'Goldfish Salon',
     this.address = '',
     this.phone = '',
     this.taxLabel = 'Tax',
     this.taxRate = 0.0,
+    this.touchscreenEnabled = false,
   });
 
   factory BusinessSettings.fromFirestore(DocumentSnapshot doc) {
@@ -35,6 +40,7 @@ class BusinessSettings {
       phone: data['phone'] as String? ?? '',
       taxLabel: data['taxLabel'] as String? ?? 'Tax',
       taxRate: (data['taxRate'] ?? 0).toDouble(),
+      touchscreenEnabled: data['touchscreenEnabled'] as bool? ?? false,
     );
   }
 
@@ -44,6 +50,7 @@ class BusinessSettings {
     'phone': phone,
     'taxLabel': taxLabel,
     'taxRate': taxRate,
+    'touchscreenEnabled': touchscreenEnabled,
   };
 
   BusinessSettings copyWith({
@@ -52,11 +59,13 @@ class BusinessSettings {
     String? phone,
     String? taxLabel,
     double? taxRate,
+    bool? touchscreenEnabled,
   }) => BusinessSettings(
     salonName: salonName ?? this.salonName,
     address: address ?? this.address,
     phone: phone ?? this.phone,
     taxLabel: taxLabel ?? this.taxLabel,
     taxRate: taxRate ?? this.taxRate,
+    touchscreenEnabled: touchscreenEnabled ?? this.touchscreenEnabled,
   );
 }

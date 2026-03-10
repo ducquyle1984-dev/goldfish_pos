@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'firebase_options.dart';
 
 import 'providers/theme_provider.dart';
+import 'providers/touchscreen_provider.dart';
 import 'themes/app_themes.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
@@ -56,40 +57,50 @@ void _showErrorOverlay(String message) {
   if (!kIsWeb) return;
   try {
     final key = GlobalKey();
-    runApp(MaterialApp(
-      key: key,
-      debugShowCheckedModeBanner: false,
-      home: Scaffold(
-        backgroundColor: const Color(0xFF0D2B45),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
-                const SizedBox(height: 16),
-                const Text(
-                  'Something went wrong',
-                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  message,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Please refresh the page (F5 or Ctrl+Shift+R).',
-                  style: TextStyle(color: Colors.orange, fontSize: 13),
-                ),
-              ],
+    runApp(
+      MaterialApp(
+        key: key,
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          backgroundColor: const Color(0xFF0D2B45),
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    color: Colors.redAccent,
+                    size: 48,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Something went wrong',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Please refresh the page (F5 or Ctrl+Shift+R).',
+                    style: TextStyle(color: Colors.orange, fontSize: 13),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
-    ));
+    );
   } catch (_) {
     // If even the error overlay crashes, there is nothing more we can do.
   }
@@ -107,13 +118,20 @@ class AppInitializer extends StatefulWidget {
 
 class _AppInitializerState extends State<AppInitializer> {
   late final Future<void> _init;
+  TouchscreenProvider? _touchscreenProvider;
 
   @override
   void initState() {
     super.initState();
-    _init = Firebase.initializeApp(
+    _init = _initAll();
+  }
+
+  Future<void> _initAll() async {
+    await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+    // Load touchscreen preference after Firebase is ready.
+    _touchscreenProvider = await TouchscreenProvider.load();
   }
 
   @override
@@ -147,7 +165,10 @@ class _AppInitializerState extends State<AppInitializer> {
             ),
           );
         }
-        return const MyApp();
+        return ChangeNotifierProvider.value(
+          value: _touchscreenProvider!,
+          child: const MyApp(),
+        );
       },
     );
   }
