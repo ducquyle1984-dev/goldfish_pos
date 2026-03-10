@@ -151,9 +151,9 @@ class BookingSettings {
               .toList() ??
           [],
       onlineBookingEnabled: data['onlineBookingEnabled'] ?? true,
-      bookingWindowDays: (data['bookingWindowDays'] ?? 30) as int,
-      minAdvanceHours: (data['minAdvanceHours'] ?? 2) as int,
-      slotDurationMinutes: (data['slotDurationMinutes'] ?? 60) as int,
+      bookingWindowDays: (data['bookingWindowDays'] as num? ?? 30).toInt(),
+      minAdvanceHours: (data['minAdvanceHours'] as num? ?? 2).toInt(),
+      slotDurationMinutes: (data['slotDurationMinutes'] as num? ?? 60).toInt(),
       businessHours:
           (data['businessHours'] as Map<String, dynamic>?)?.map(
             (k, v) => MapEntry(

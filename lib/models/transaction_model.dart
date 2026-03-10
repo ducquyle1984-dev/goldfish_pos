@@ -162,7 +162,7 @@ class Transaction {
     final data = (doc.data() ?? {}) as Map<String, dynamic>;
     return Transaction(
       id: doc.id,
-      dailyNumber: (data['dailyNumber'] ?? 0) as int,
+      dailyNumber: (data['dailyNumber'] as num? ?? 0).toInt(),
       items:
           (data['items'] as List<dynamic>?)
               ?.whereType<Map<String, dynamic>>()
@@ -197,7 +197,7 @@ class Transaction {
   factory Transaction.fromJson(Map<String, dynamic> json) {
     return Transaction(
       id: json['id'] ?? '',
-      dailyNumber: (json['dailyNumber'] ?? 0) as int,
+      dailyNumber: (json['dailyNumber'] as num? ?? 0).toInt(),
       items:
           (json['items'] as List<dynamic>?)
               ?.map(
