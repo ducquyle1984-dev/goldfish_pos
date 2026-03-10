@@ -141,7 +141,7 @@ class BookingSettings {
     return BookingSettings(
       enabledWeekdays:
           (data['enabledWeekdays'] as List<dynamic>?)
-              ?.map((e) => e as int)
+              ?.map((e) => (e as num).toInt())
               .toList() ??
           [1, 2, 3, 4, 5, 6],
       blackoutDates:

@@ -65,7 +65,7 @@ class TransactionItem {
       employeeId: json['employeeId'] ?? '',
       employeeName: json['employeeName'] ?? '',
       itemPrice: (json['itemPrice'] ?? 0).toDouble(),
-      quantity: json['quantity'] ?? 1,
+      quantity: (json['quantity'] as num? ?? 1).toInt(),
       subtotal: (json['subtotal'] ?? 0).toDouble(),
     );
   }

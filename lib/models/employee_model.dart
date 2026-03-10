@@ -42,7 +42,7 @@ class Employee {
       address: data['address'],
       commissionPercentage: (data['commissionPercentage'] ?? 0).toDouble(),
       isActive: data['isActive'] ?? true,
-      colorValue: (data['colorValue'] as int?) ?? 0xFF90CAF9,
+      colorValue: (data['colorValue'] as num?)?.toInt() ?? 0xFF90CAF9,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -57,7 +57,7 @@ class Employee {
       address: json['address'],
       commissionPercentage: (json['commissionPercentage'] ?? 0).toDouble(),
       isActive: json['isActive'] ?? true,
-      colorValue: (json['colorValue'] as int?) ?? 0xFF90CAF9,
+      colorValue: (json['colorValue'] as num?)?.toInt() ?? 0xFF90CAF9,
       createdAt: json['createdAt'] is Timestamp
           ? (json['createdAt'] as Timestamp).toDate()
           : DateTime.parse(
