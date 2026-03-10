@@ -45,6 +45,8 @@ class TransactionItem {
   final double itemPrice;
   final int quantity;
   final double subtotal; // itemPrice * quantity
+  /// 'service', 'product', or 'gift_card'
+  final String itemType;
 
   TransactionItem({
     required this.id,
@@ -55,6 +57,7 @@ class TransactionItem {
     required this.itemPrice,
     required this.quantity,
     required this.subtotal,
+    this.itemType = 'service',
   });
 
   factory TransactionItem.fromJson(Map<String, dynamic> json) {
@@ -64,9 +67,10 @@ class TransactionItem {
       itemName: json['itemName'] ?? '',
       employeeId: json['employeeId'] ?? '',
       employeeName: json['employeeName'] ?? '',
-      itemPrice: (json['itemPrice'] ?? 0).toDouble(),
+      itemPrice: (json['itemPrice'] as num? ?? 0).toDouble(),
       quantity: (json['quantity'] as num? ?? 1).toInt(),
-      subtotal: (json['subtotal'] ?? 0).toDouble(),
+      subtotal: (json['subtotal'] as num? ?? 0).toDouble(),
+      itemType: json['itemType'] ?? 'service',
     );
   }
 
@@ -79,6 +83,7 @@ class TransactionItem {
     'itemPrice': itemPrice,
     'quantity': quantity,
     'subtotal': subtotal,
+    'itemType': itemType,
   };
 }
 

@@ -8,7 +8,22 @@ class RewardSettings {
   /// Whether the reward program is enabled at all.
   final bool enabled;
 
-  const RewardSettings({this.dollarsPerPoint = 100.0, this.enabled = true});
+  /// Whether services count toward earning points.
+  final bool earnOnServices;
+
+  /// Whether products count toward earning points.
+  final bool earnOnProducts;
+
+  /// Whether gift card purchases count toward earning points.
+  final bool earnOnGiftCardPurchases;
+
+  const RewardSettings({
+    this.dollarsPerPoint = 100.0,
+    this.enabled = true,
+    this.earnOnServices = true,
+    this.earnOnProducts = true,
+    this.earnOnGiftCardPurchases = false,
+  });
 
   /// Points earned for a given spend amount.
   int pointsEarned(double amountSpent) {
@@ -19,21 +34,37 @@ class RewardSettings {
   factory RewardSettings.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
     return RewardSettings(
-      dollarsPerPoint: (data['dollarsPerPoint'] ?? 100).toDouble(),
+      dollarsPerPoint: (data['dollarsPerPoint'] as num? ?? 100).toDouble(),
       enabled: data['enabled'] ?? true,
+      earnOnServices: data['earnOnServices'] ?? true,
+      earnOnProducts: data['earnOnProducts'] ?? true,
+      earnOnGiftCardPurchases: data['earnOnGiftCardPurchases'] ?? false,
     );
   }
 
   Map<String, dynamic> toFirestore() => {
     'dollarsPerPoint': dollarsPerPoint,
     'enabled': enabled,
+    'earnOnServices': earnOnServices,
+    'earnOnProducts': earnOnProducts,
+    'earnOnGiftCardPurchases': earnOnGiftCardPurchases,
     'updatedAt': Timestamp.now(),
   };
 
-  RewardSettings copyWith({double? dollarsPerPoint, bool? enabled}) {
+  RewardSettings copyWith({
+    double? dollarsPerPoint,
+    bool? enabled,
+    bool? earnOnServices,
+    bool? earnOnProducts,
+    bool? earnOnGiftCardPurchases,
+  }) {
     return RewardSettings(
       dollarsPerPoint: dollarsPerPoint ?? this.dollarsPerPoint,
       enabled: enabled ?? this.enabled,
+      earnOnServices: earnOnServices ?? this.earnOnServices,
+      earnOnProducts: earnOnProducts ?? this.earnOnProducts,
+      earnOnGiftCardPurchases:
+          earnOnGiftCardPurchases ?? this.earnOnGiftCardPurchases,
     );
   }
 }

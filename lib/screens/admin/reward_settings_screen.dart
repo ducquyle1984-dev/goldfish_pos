@@ -14,6 +14,9 @@ class _RewardSettingsScreenState extends State<RewardSettingsScreen> {
   final _repo = PosRepository();
   final _dollarsCtrl = TextEditingController();
   bool _enabled = true;
+  bool _earnOnServices = true;
+  bool _earnOnProducts = true;
+  bool _earnOnGiftCardPurchases = false;
   bool _loading = true;
   bool _saving = false;
 
@@ -34,6 +37,9 @@ class _RewardSettingsScreenState extends State<RewardSettingsScreen> {
       final settings = await _repo.getRewardSettings();
       setState(() {
         _enabled = settings.enabled;
+        _earnOnServices = settings.earnOnServices;
+        _earnOnProducts = settings.earnOnProducts;
+        _earnOnGiftCardPurchases = settings.earnOnGiftCardPurchases;
         _dollarsCtrl.text = settings.dollarsPerPoint.toStringAsFixed(0);
         _loading = false;
       });
@@ -65,7 +71,13 @@ class _RewardSettingsScreenState extends State<RewardSettingsScreen> {
     setState(() => _saving = true);
     try {
       await _repo.updateRewardSettings(
-        RewardSettings(dollarsPerPoint: dollars, enabled: _enabled),
+        RewardSettings(
+          dollarsPerPoint: dollars,
+          enabled: _enabled,
+          earnOnServices: _earnOnServices,
+          earnOnProducts: _earnOnProducts,
+          earnOnGiftCardPurchases: _earnOnGiftCardPurchases,
+        ),
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -116,6 +128,88 @@ class _RewardSettingsScreenState extends State<RewardSettingsScreen> {
                         Icons.star,
                         color: _enabled ? Colors.amber : Colors.grey,
                       ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // What earns points
+                  Text(
+                    'Earn Points On',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Choose which purchase types count toward earning reward points.',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Card(
+                    child: Column(
+                      children: [
+                        SwitchListTile(
+                          title: const Text('Services'),
+                          subtitle: const Text(
+                            'Points earned on service purchases.',
+                          ),
+                          value: _earnOnServices,
+                          onChanged:
+                              _enabled
+                                  ? (v) => setState(() => _earnOnServices = v)
+                                  : null,
+                          secondary: Icon(
+                            Icons.content_cut,
+                            color:
+                                _enabled && _earnOnServices
+                                    ? Colors.amber
+                                    : Colors.grey,
+                          ),
+                        ),
+                        const Divider(height: 1, indent: 16),
+                        SwitchListTile(
+                          title: const Text('Products'),
+                          subtitle: const Text(
+                            'Points earned on product purchases.',
+                          ),
+                          value: _earnOnProducts,
+                          onChanged:
+                              _enabled
+                                  ? (v) => setState(() => _earnOnProducts = v)
+                                  : null,
+                          secondary: Icon(
+                            Icons.shopping_bag_outlined,
+                            color:
+                                _enabled && _earnOnProducts
+                                    ? Colors.amber
+                                    : Colors.grey,
+                          ),
+                        ),
+                        const Divider(height: 1, indent: 16),
+                        SwitchListTile(
+                          title: const Text('Gift Card Purchases'),
+                          subtitle: const Text(
+                            'Allow customers to earn points when buying a gift card (in addition to when they redeem it).',
+                          ),
+                          value: _earnOnGiftCardPurchases,
+                          onChanged:
+                              _enabled
+                                  ? (v) =>
+                                      setState(() => _earnOnGiftCardPurchases = v)
+                                  : null,
+                          secondary: Icon(
+                            Icons.card_giftcard,
+                            color:
+                                _enabled && _earnOnGiftCardPurchases
+                                    ? Colors.amber
+                                    : Colors.grey,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
 

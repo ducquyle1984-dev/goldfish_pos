@@ -45,6 +45,7 @@ class _LineItem {
     itemPrice: unitPrice,
     quantity: quantity,
     subtotal: subtotal,
+    itemType: item.type == ItemType.product ? 'product' : 'service',
   );
 }
 
@@ -1690,16 +1691,36 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
 
   // ── Post-payment: award points + SMS survey ───────────────────────────────
   Future<void> _handlePostPayment(Transaction tx) async {
-    // Award reward points
+    // Award reward points based on eligible item subtotals
     final customer = _selectedCustomer;
     if (customer != null && _rewardSettings.enabled) {
-      final cashPaid = tx.payments
+      // Sum subtotals for each item type that is enabled in reward settings
+      double eligibleAmount = 0;
+      for (final item in tx.items) {
+        switch (item.itemType) {
+          case 'service':
+            if (_rewardSettings.earnOnServices) eligibleAmount += item.subtotal;
+            break;
+          case 'product':
+            if (_rewardSettings.earnOnProducts) eligibleAmount += item.subtotal;
+            break;
+          case 'gift_card':
+            if (_rewardSettings.earnOnGiftCardPurchases) {
+              eligibleAmount += item.subtotal;
+            }
+            break;
+        }
+      }
+      // Do not award points on the portion paid with reward points or gift cards
+      final nonCashPaid = tx.payments
           .where(
             (p) =>
-                p.paymentMethodId != 'reward_points' &&
-                !p.paymentMethodId.startsWith('gift_card:'),
+                p.paymentMethodId == 'reward_points' ||
+                p.paymentMethodId.startsWith('gift_card:'),
           )
           .fold<double>(0, (s, p) => s + p.amountPaid);
+      // Eligible amount cannot exceed what the customer actually paid in cash/card
+      final cashPaid = (tx.totalAmount - nonCashPaid).clamp(0.0, eligibleAmount);
       final pointsEarned = _rewardSettings.pointsEarned(cashPaid);
       if (pointsEarned > 0) {
         try {
@@ -2086,6 +2107,7 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
                           itemPrice: amount,
                           quantity: 1,
                           subtotal: amount,
+                          itemType: 'gift_card',
                         );
                         await _repo.addGiftCardSaleToTransaction(
                           _savedTransactionId!,
