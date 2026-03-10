@@ -132,11 +132,13 @@ class _CustomerCheckInDialogState extends State<_CustomerCheckInDialog> {
             ),
             const Divider(height: 1),
 
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              child: _showNewForm
-                  ? _buildNewCustomerForm()
-                  : _buildSearchView(),
+            Flexible(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: _showNewForm
+                    ? _buildNewCustomerForm()
+                    : _buildSearchView(),
+              ),
             ),
           ],
         ),
@@ -146,148 +148,144 @@ class _CustomerCheckInDialogState extends State<_CustomerCheckInDialog> {
 
   // ── Search existing customers ─────────────────────────────────────────────
   Widget _buildSearchView() {
-    return Flexible(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Search field
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              controller: _searchCtrl,
-              autofocus: true,
-              decoration: InputDecoration(
-                hintText: 'Search by name or phone…',
-                prefixIcon: const Icon(Icons.search),
-                border: const OutlineInputBorder(),
-                isDense: true,
-                suffixIcon: _query.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          setState(() => _query = '');
-                        },
-                      )
-                    : null,
-              ),
-              onChanged: (v) => setState(() => _query = v),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Search field
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: TextField(
+            controller: _searchCtrl,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: 'Search by name or phone…',
+              prefixIcon: const Icon(Icons.search),
+              border: const OutlineInputBorder(),
+              isDense: true,
+              suffixIcon: _query.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        setState(() => _query = '');
+                      },
+                    )
+                  : null,
+            ),
+            onChanged: (v) => setState(() => _query = v),
+          ),
+        ),
+
+        // New customer button
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: OutlinedButton.icon(
+            icon: const Icon(Icons.person_add_outlined, size: 18),
+            label: const Text('New Customer'),
+            onPressed: () {
+              if (_query.isNotEmpty && !RegExp(r'^\d').hasMatch(_query)) {
+                _nameCtrl.text = _query;
+              } else if (_query.isNotEmpty && RegExp(r'^\d').hasMatch(_query)) {
+                _phoneCtrl.text = _query;
+              }
+              setState(() => _showNewForm = true);
+            },
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(40),
             ),
           ),
+        ),
+        const Divider(height: 1),
 
-          // New customer button
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: OutlinedButton.icon(
-              icon: const Icon(Icons.person_add_outlined, size: 18),
-              label: const Text('New Customer'),
-              onPressed: () {
-                // Pre-fill name from search if it looks like a name
-                if (_query.isNotEmpty && !RegExp(r'^\d').hasMatch(_query)) {
-                  _nameCtrl.text = _query;
-                } else if (_query.isNotEmpty &&
-                    RegExp(r'^\d').hasMatch(_query)) {
-                  _phoneCtrl.text = _query;
-                }
-                setState(() => _showNewForm = true);
-              },
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(40),
-              ),
-            ),
-          ),
-          const Divider(height: 1),
+        // Customer list (streamed)
+        Flexible(
+          child: StreamBuilder<List<Customer>>(
+            stream: _repo.getCustomers(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final all = snapshot.data ?? [];
+              final q = _query.toLowerCase().trim();
+              final filtered = q.isEmpty
+                  ? all
+                  : all.where((c) {
+                      return c.name.toLowerCase().contains(q) ||
+                          c.phone.toLowerCase().contains(q);
+                    }).toList();
 
-          // Customer list (streamed)
-          Flexible(
-            child: StreamBuilder<List<Customer>>(
-              stream: _repo.getCustomers(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                final all = snapshot.data ?? [];
-                final q = _query.toLowerCase().trim();
-                final filtered = q.isEmpty
-                    ? all
-                    : all.where((c) {
-                        return c.name.toLowerCase().contains(q) ||
-                            c.phone.toLowerCase().contains(q);
-                      }).toList();
+              if (filtered.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.search_off,
+                        size: 40,
+                        color: Colors.grey.shade400,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        q.isEmpty
+                            ? 'No customers yet.'
+                            : 'No customers matching "$_query".',
+                        style: TextStyle(color: Colors.grey.shade600),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                );
+              }
 
-                if (filtered.isEmpty) {
-                  return Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
+              return ListView.separated(
+                shrinkWrap: true,
+                itemCount: filtered.length,
+                separatorBuilder: (_, __) =>
+                    const Divider(height: 1, indent: 16),
+                itemBuilder: (ctx, i) {
+                  final c = filtered[i];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      radius: 18,
+                      child: Text(
+                        c.name.isNotEmpty ? c.name[0].toUpperCase() : '?',
+                      ),
+                    ),
+                    title: Text(
+                      c.name,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Row(
                       children: [
-                        Icon(
-                          Icons.search_off,
-                          size: 40,
-                          color: Colors.grey.shade400,
-                        ),
-                        const SizedBox(height: 8),
+                        Text(c.phone),
+                        const SizedBox(width: 10),
+                        const Icon(Icons.cake_outlined, size: 12),
+                        const SizedBox(width: 3),
                         Text(
-                          q.isEmpty
-                              ? 'No customers yet.'
-                              : 'No customers matching "$_query".',
-                          style: TextStyle(color: Colors.grey.shade600),
-                          textAlign: TextAlign.center,
+                          c.birthDateDisplay,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        const SizedBox(width: 10),
+                        const Icon(Icons.star, size: 12, color: Colors.amber),
+                        const SizedBox(width: 3),
+                        Text(
+                          '${c.rewardPoints.toStringAsFixed(0)} pts',
+                          style: const TextStyle(fontSize: 12),
                         ),
                       ],
                     ),
+                    onTap: () => Navigator.of(context).pop(c),
                   );
-                }
-
-                return ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: filtered.length,
-                  separatorBuilder: (_, __) =>
-                      const Divider(height: 1, indent: 16),
-                  itemBuilder: (ctx, i) {
-                    final c = filtered[i];
-                    return ListTile(
-                      leading: CircleAvatar(
-                        radius: 18,
-                        child: Text(
-                          c.name.isNotEmpty ? c.name[0].toUpperCase() : '?',
-                        ),
-                      ),
-                      title: Text(
-                        c.name,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      subtitle: Row(
-                        children: [
-                          Text(c.phone),
-                          const SizedBox(width: 10),
-                          const Icon(Icons.cake_outlined, size: 12),
-                          const SizedBox(width: 3),
-                          Text(
-                            c.birthDateDisplay,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          const SizedBox(width: 10),
-                          const Icon(Icons.star, size: 12, color: Colors.amber),
-                          const SizedBox(width: 3),
-                          Text(
-                            '${c.rewardPoints.toStringAsFixed(0)} pts',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ],
-                      ),
-                      onTap: () => Navigator.of(context).pop(c),
-                    );
-                  },
-                );
-              },
-            ),
+                },
+              );
+            },
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
