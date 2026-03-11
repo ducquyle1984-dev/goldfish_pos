@@ -9,7 +9,7 @@ import '../models/customer_model.dart';
 import '../models/transaction_model.dart';
 
 /// Which variant of the receipt to print.
-enum ReceiptCopy { customer, merchant, technician, none }
+enum ReceiptCopy { customer, merchant, both, technician, none }
 
 /// Service responsible for formatting and printing receipts via the
 /// local bridge helper app (`cash_drawer_bridge.py`).
@@ -206,7 +206,7 @@ class ReceiptService {
     }
     lines.add(_sep());
 
-    // ── Customer / merchant signature block ──────────────────────────────
+    // ── Consent text (all copies except technician) ──────────────────────
     if (copy == ReceiptCopy.customer || copy == ReceiptCopy.merchant) {
       lines.add(_blank());
       lines.add(_line('I agree to pay the listed amount,'));
@@ -214,6 +214,12 @@ class ReceiptService {
       lines.add(_line('and services provided today, and'));
       lines.add(_line('confirm that they were delivered to'));
       lines.add(_line('my full satisfaction.'));
+      lines.add(_blank());
+    }
+
+    // ── Merchant-only: blank signing space ───────────────────────────────
+    if (copy == ReceiptCopy.merchant) {
+      lines.add(_line('Signature: ______________________'));
       lines.add(_blank());
     }
 

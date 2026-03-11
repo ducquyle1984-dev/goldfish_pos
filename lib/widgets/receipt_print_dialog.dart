@@ -98,6 +98,20 @@ class _ReceiptPrintDialogState extends State<ReceiptPrintDialog> {
           );
           if (error != null) break;
         }
+      } else if (_selectedCopy == ReceiptCopy.both) {
+        // Print customer copy then merchant copy
+        for (final copy in [ReceiptCopy.customer, ReceiptCopy.merchant]) {
+          final lines = _receiptSvc.buildLines(
+            tx: widget.transaction,
+            biz: _biz,
+            copy: copy,
+          );
+          error = await _receiptSvc.printViaSettings(
+            settings: _drawer,
+            lines: lines,
+          );
+          if (error != null) break;
+        }
       } else {
         final lines = _receiptSvc.buildLines(
           tx: widget.transaction,
@@ -123,7 +137,9 @@ class _ReceiptPrintDialogState extends State<ReceiptPrintDialog> {
       } else {
         final label = _selectedCopy == ReceiptCopy.technician
             ? '${_technicians.length} technician receipt(s)'
-            : '${_selectedCopy.name} receipt';
+            : _selectedCopy == ReceiptCopy.both
+                ? 'customer & merchant receipts'
+                : '${_selectedCopy.name} receipt';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Sent $label to printer.'),
@@ -325,13 +341,19 @@ class _ReceiptPrintDialogState extends State<ReceiptPrintDialog> {
         value: ReceiptCopy.customer,
         label: 'Customer',
         icon: Icons.person_outline,
-        subtitle: 'Includes signature line',
+        subtitle: 'Customer copy',
       ),
       _CopyOption(
         value: ReceiptCopy.merchant,
         label: 'Merchant',
         icon: Icons.store_outlined,
         subtitle: 'Merchant record',
+      ),
+      _CopyOption(
+        value: ReceiptCopy.both,
+        label: 'Both',
+        icon: Icons.copy_all_outlined,
+        subtitle: 'Customer & merchant copies',
       ),
       _CopyOption(
         value: ReceiptCopy.technician,
