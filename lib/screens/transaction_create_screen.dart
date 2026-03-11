@@ -851,10 +851,14 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
         // Title
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          color: Colors.grey.shade100,
-          child: const Text(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Text(
             'Order Summary',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
           ),
         ),
         const Divider(height: 1),
@@ -1014,8 +1018,12 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        border: Border(top: BorderSide(color: Colors.grey.shade300)),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        border: Border(
+          top: BorderSide(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+        ),
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -1028,23 +1036,23 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
-                color: Colors.amber.shade50,
+                color: Colors.amber.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.amber.shade300),
+                border: Border.all(color: Colors.amber.withOpacity(0.5)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.star, color: Colors.amber.shade700, size: 16),
+                      const Icon(Icons.star, color: Colors.amber, size: 16),
                       const SizedBox(width: 6),
                       Text(
                         '${_selectedCustomer!.rewardPoints.toStringAsFixed(0)} pts available (1 pt = \$1.00)',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontWeight: FontWeight.w600,
                           fontSize: 13,
-                          color: Colors.amber.shade900,
+                          color: Colors.amber,
                         ),
                       ),
                     ],
@@ -1971,7 +1979,9 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
                               ? 'No expiration date'
                               : 'Expires: ${expiresAt!.month}/${expiresAt!.day}/${expiresAt!.year}',
                           style: TextStyle(
-                            color: Colors.grey.shade700,
+                            color: Theme.of(
+                              ctx,
+                            ).colorScheme.onSurface.withOpacity(0.7),
                             fontSize: 13,
                           ),
                         ),
@@ -2230,7 +2240,11 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             color: active ? color : Colors.transparent,
-            border: Border.all(color: active ? color : Colors.grey.shade400),
+            border: Border.all(
+              color: active
+                  ? color
+                  : Theme.of(ctx).colorScheme.outline,
+            ),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
@@ -2239,7 +2253,9 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
               Icon(
                 icon,
                 size: 18,
-                color: active ? Colors.white : Colors.grey.shade700,
+                color: active
+                    ? Colors.white
+                    : Theme.of(ctx).colorScheme.onSurface.withOpacity(0.7),
               ),
               const SizedBox(height: 4),
               Text(
@@ -2247,7 +2263,9 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: active ? Colors.white : Colors.grey.shade700,
+                  color: active
+                      ? Colors.white
+                      : Theme.of(ctx).colorScheme.onSurface.withOpacity(0.7),
                 ),
               ),
             ],
@@ -2327,7 +2345,7 @@ class _ItemTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(10),
       elevation: 1,
       child: InkWell(
@@ -2459,7 +2477,11 @@ class _CustomerSearchFieldState extends State<_CustomerSearchField> {
               child: Text(
                 label,
                 style: TextStyle(
-                  color: widget.selected == null ? Colors.grey.shade600 : null,
+                  color: widget.selected == null
+                      ? Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withOpacity(0.5)
+                      : Theme.of(context).colorScheme.onSurface,
                 ),
               ),
             ),
@@ -2469,7 +2491,11 @@ class _CustomerSearchFieldState extends State<_CustomerSearchField> {
                 child: const Icon(Icons.close, size: 16),
               )
             else
-              const Icon(Icons.search, size: 16, color: Colors.grey),
+              Icon(
+                Icons.search,
+                size: 16,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+              ),
           ],
         ),
       ),
@@ -2651,8 +2677,11 @@ class _ActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onTap != null;
+    final cs = Theme.of(context).colorScheme;
     return Material(
-      color: enabled ? Colors.white : Colors.grey.shade100,
+      color: enabled
+          ? cs.surfaceContainerHighest
+          : cs.surfaceContainerHighest.withOpacity(0.4),
       borderRadius: BorderRadius.circular(8),
       elevation: enabled ? 1 : 0,
       child: InkWell(
@@ -2664,8 +2693,8 @@ class _ActionButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: enabled
-                  ? Theme.of(context).colorScheme.primary.withOpacity(0.35)
-                  : Colors.grey.shade300,
+                  ? cs.primary.withOpacity(0.35)
+                  : cs.outline.withOpacity(0.3),
             ),
           ),
           child: Column(
@@ -2674,9 +2703,7 @@ class _ActionButton extends StatelessWidget {
               Icon(
                 icon,
                 size: 20,
-                color: enabled
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.grey.shade400,
+                color: enabled ? cs.primary : cs.onSurface.withOpacity(0.35),
               ),
               const SizedBox(height: 4),
               Text(
@@ -2684,9 +2711,7 @@ class _ActionButton extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: enabled
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.grey.shade400,
+                  color: enabled ? cs.primary : cs.onSurface.withOpacity(0.35),
                 ),
               ),
             ],
