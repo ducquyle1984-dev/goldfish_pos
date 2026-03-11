@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:goldfish_pos/providers/touchscreen_provider.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
+import 'package:goldfish_pos/screens/admin/cash_drawer_settings_screen.dart';
+import 'package:goldfish_pos/screens/admin/payment_method_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/twilio_credentials_screen.dart';
 import 'package:goldfish_pos/widgets/pin_numpad.dart';
 import 'package:provider/provider.dart';
@@ -61,6 +63,30 @@ class SystemAdminDashboardScreen extends StatelessWidget {
               crossAxisSpacing: 12,
               childAspectRatio: 1.2,
               children: [
+                _SysAdminCard(
+                  title: 'Payment Methods',
+                  subtitle: 'Configure accepted payments',
+                  icon: Icons.payment_outlined,
+                  color: Colors.orange,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const PaymentMethodManagementScreen(),
+                    ),
+                  ),
+                ),
+                _SysAdminCard(
+                  title: 'Cash Drawer',
+                  subtitle: 'Hardware & bridge settings',
+                  icon: Icons.point_of_sale_outlined,
+                  color: Colors.brown,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const CashDrawerSettingsScreen(),
+                    ),
+                  ),
+                ),
                 _SysAdminCard(
                   title: 'Twilio Credentials',
                   subtitle: 'SMS API keys',

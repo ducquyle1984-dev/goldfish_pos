@@ -3,13 +3,11 @@ import 'package:goldfish_pos/providers/touchscreen_provider.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/screens/admin/booking_settings_screen.dart';
 import 'package:goldfish_pos/screens/admin/business_settings_screen.dart';
-import 'package:goldfish_pos/screens/admin/cash_drawer_settings_screen.dart';
 import 'package:goldfish_pos/screens/admin/customer_feedback_screen.dart';
 import 'package:goldfish_pos/screens/admin/customer_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/employee_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/gift_card_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/item_management_screen.dart';
-import 'package:goldfish_pos/screens/admin/payment_method_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/item_category_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/reward_settings_screen.dart';
 import 'package:goldfish_pos/screens/admin/sms_settings_screen.dart';
@@ -133,12 +131,12 @@ class AdminDashboardScreen extends StatelessWidget {
             const SizedBox(height: 32),
             // Admin Options Grid
             GridView.count(
-              crossAxisCount: 4,
+              crossAxisCount: 6,
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.1,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              childAspectRatio: 1.2,
               children: [
                 _AdminCard(
                   title: 'Business Info',
@@ -174,18 +172,6 @@ class AdminDashboardScreen extends StatelessWidget {
                   ),
                 ),
                 _AdminCard(
-                  title: 'Payment Methods',
-                  icon: Icons.payment,
-                  color: Colors.orange,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          const PaymentMethodManagementScreen(),
-                    ),
-                  ),
-                ),
-                _AdminCard(
                   title: 'Item Categories',
                   icon: Icons.category,
                   color: Colors.purple,
@@ -216,17 +202,6 @@ class AdminDashboardScreen extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) => const RewardSettingsScreen(),
-                    ),
-                  ),
-                ),
-                _AdminCard(
-                  title: 'Cash Drawer',
-                  icon: Icons.point_of_sale,
-                  color: Colors.brown,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const CashDrawerSettingsScreen(),
                     ),
                   ),
                 ),
@@ -328,19 +303,19 @@ class _AdminCard extends StatelessWidget {
               end: Alignment.bottomRight,
             ),
           ),
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 26, color: color),
-              const SizedBox(height: 6),
+              Icon(icon, size: 22, color: color),
+              const SizedBox(height: 5),
               Text(
                 title,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: color,
-                  fontSize: 13,
+                  fontSize: 11,
                 ),
               ),
             ],
