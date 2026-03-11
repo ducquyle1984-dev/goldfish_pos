@@ -143,10 +143,7 @@ class _RewardSettingsScreenState extends State<RewardSettingsScreen> {
                   const SizedBox(height: 4),
                   Text(
                     'Choose which purchase types count toward earning reward points.',
-                    style: TextStyle(
-                      color: Colors.grey.shade600,
-                      fontSize: 13,
-                    ),
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
                   ),
                   const SizedBox(height: 8),
                   Card(
@@ -158,16 +155,14 @@ class _RewardSettingsScreenState extends State<RewardSettingsScreen> {
                             'Points earned on service purchases.',
                           ),
                           value: _earnOnServices,
-                          onChanged:
-                              _enabled
-                                  ? (v) => setState(() => _earnOnServices = v)
-                                  : null,
+                          onChanged: _enabled
+                              ? (v) => setState(() => _earnOnServices = v)
+                              : null,
                           secondary: Icon(
                             Icons.content_cut,
-                            color:
-                                _enabled && _earnOnServices
-                                    ? Colors.amber
-                                    : Colors.grey,
+                            color: _enabled && _earnOnServices
+                                ? Colors.amber
+                                : Colors.grey,
                           ),
                         ),
                         const Divider(height: 1, indent: 16),
@@ -177,16 +172,14 @@ class _RewardSettingsScreenState extends State<RewardSettingsScreen> {
                             'Points earned on product purchases.',
                           ),
                           value: _earnOnProducts,
-                          onChanged:
-                              _enabled
-                                  ? (v) => setState(() => _earnOnProducts = v)
-                                  : null,
+                          onChanged: _enabled
+                              ? (v) => setState(() => _earnOnProducts = v)
+                              : null,
                           secondary: Icon(
                             Icons.shopping_bag_outlined,
-                            color:
-                                _enabled && _earnOnProducts
-                                    ? Colors.amber
-                                    : Colors.grey,
+                            color: _enabled && _earnOnProducts
+                                ? Colors.amber
+                                : Colors.grey,
                           ),
                         ),
                         const Divider(height: 1, indent: 16),
@@ -196,17 +189,15 @@ class _RewardSettingsScreenState extends State<RewardSettingsScreen> {
                             'Allow customers to earn points when buying a gift card (in addition to when they redeem it).',
                           ),
                           value: _earnOnGiftCardPurchases,
-                          onChanged:
-                              _enabled
-                                  ? (v) =>
-                                      setState(() => _earnOnGiftCardPurchases = v)
-                                  : null,
+                          onChanged: _enabled
+                              ? (v) =>
+                                    setState(() => _earnOnGiftCardPurchases = v)
+                              : null,
                           secondary: Icon(
                             Icons.card_giftcard,
-                            color:
-                                _enabled && _earnOnGiftCardPurchases
-                                    ? Colors.amber
-                                    : Colors.grey,
+                            color: _enabled && _earnOnGiftCardPurchases
+                                ? Colors.amber
+                                : Colors.grey,
                           ),
                         ),
                       ],

@@ -1720,7 +1720,10 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
           )
           .fold<double>(0, (s, p) => s + p.amountPaid);
       // Eligible amount cannot exceed what the customer actually paid in cash/card
-      final cashPaid = (tx.totalAmount - nonCashPaid).clamp(0.0, eligibleAmount);
+      final cashPaid = (tx.totalAmount - nonCashPaid).clamp(
+        0.0,
+        eligibleAmount,
+      );
       final pointsEarned = _rewardSettings.pointsEarned(cashPaid);
       if (pointsEarned > 0) {
         try {
