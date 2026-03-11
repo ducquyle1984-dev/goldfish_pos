@@ -138,8 +138,8 @@ class _ReceiptPrintDialogState extends State<ReceiptPrintDialog> {
         final label = _selectedCopy == ReceiptCopy.technician
             ? '${_technicians.length} technician receipt(s)'
             : _selectedCopy == ReceiptCopy.both
-                ? 'customer & merchant receipts'
-                : '${_selectedCopy.name} receipt';
+            ? 'customer & merchant receipts'
+            : '${_selectedCopy.name} receipt';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Sent $label to printer.'),
@@ -161,7 +161,7 @@ class _ReceiptPrintDialogState extends State<ReceiptPrintDialog> {
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 900, maxHeight: 700),
+        constraints: const BoxConstraints(maxWidth: 1100, maxHeight: 860),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -203,7 +203,7 @@ class _ReceiptPrintDialogState extends State<ReceiptPrintDialog> {
                       children: [
                         // ── Preview panel ──────────────────────────────
                         Expanded(
-                          flex: 3,
+                          flex: 5,
                           child: Container(
                             color: theme.colorScheme.surfaceContainerLowest,
                             child: Column(
@@ -261,7 +261,7 @@ class _ReceiptPrintDialogState extends State<ReceiptPrintDialog> {
 
                         // ── Options panel ──────────────────────────────
                         SizedBox(
-                          width: 220,
+                          width: 260,
                           child: Padding(
                             padding: const EdgeInsets.all(20),
                             child: Column(
@@ -275,10 +275,17 @@ class _ReceiptPrintDialogState extends State<ReceiptPrintDialog> {
                                 ),
                                 const SizedBox(height: 12),
 
-                                // Radio options
-                                ..._buildRadioOptions(theme),
-
-                                const Spacer(),
+                                // Radio options — scrollable so they're never clipped
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: _buildRadioOptions(theme),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
 
                                 // Bridge mode note
                                 if (!_drawer.enabled ||
