@@ -75,6 +75,8 @@ class ReceiptService {
         lines.add(_line('CUSTOMER COPY', align: 'center', bold: true));
       case ReceiptCopy.merchant:
         lines.add(_line('** MERCHANT COPY **', align: 'center', bold: true));
+      case ReceiptCopy.both:
+        lines.add(_line('CUSTOMER COPY', align: 'center', bold: true));
       case ReceiptCopy.technician:
         lines.add(_line('** TECHNICIAN COPY **', align: 'center', bold: true));
         if (technicianName != null && technicianName.isNotEmpty) {
