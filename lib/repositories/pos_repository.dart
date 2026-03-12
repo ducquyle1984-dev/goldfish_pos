@@ -4,6 +4,7 @@ import 'package:goldfish_pos/models/appointment_model.dart';
 import 'package:goldfish_pos/models/booking_settings_model.dart';
 import 'package:goldfish_pos/models/business_settings_model.dart';
 import 'package:goldfish_pos/models/cash_drawer_settings_model.dart';
+import 'package:goldfish_pos/models/client_model.dart';
 import 'package:goldfish_pos/models/gift_card_model.dart';
 import 'package:goldfish_pos/models/item_category_model.dart';
 import 'package:goldfish_pos/models/item_model.dart';
@@ -1096,5 +1097,54 @@ class PosRepository {
     } catch (e) {
       throw Exception('Failed to add gift card sale to transaction: $e');
     }
+  }
+
+  // ==================== Client (SaaS Onboarding) Operations ====================
+
+  /// Saves a new client record to `clients/` in your master Firebase.
+  Future<String> createClientRecord(ClientRecord client) async {
+    try {
+      final docRef = await _firestore
+          .collection('clients')
+          .add(client.toFirestore());
+      return docRef.id;
+    } catch (e) {
+      throw Exception('Failed to create client record: $e');
+    }
+  }
+
+  /// Updates the mutable fields of an existing client record.
+  Future<void> updateClientRecord(ClientRecord client) async {
+    try {
+      await _firestore
+          .collection('clients')
+          .doc(client.id)
+          .update(client.toFirestore());
+    } catch (e) {
+      throw Exception('Failed to update client record: $e');
+    }
+  }
+
+  /// Updates only the status field of a client record.
+  Future<void> updateClientStatus(String clientId, String status) async {
+    try {
+      await _firestore.collection('clients').doc(clientId).update({
+        'status': status,
+      });
+    } catch (e) {
+      throw Exception('Failed to update client status: $e');
+    }
+  }
+
+  /// Streams all client records ordered by onboarded date (newest first).
+  Stream<List<ClientRecord>> streamClients() {
+    return _firestore
+        .collection('clients')
+        .orderBy('onboardedAt', descending: true)
+        .snapshots()
+        .map(
+          (snap) =>
+              snap.docs.map((doc) => ClientRecord.fromFirestore(doc)).toList(),
+        );
   }
 }

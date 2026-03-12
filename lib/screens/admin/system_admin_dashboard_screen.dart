@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:goldfish_pos/providers/touchscreen_provider.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:goldfish_pos/screens/admin/cash_drawer_settings_screen.dart';
+import 'package:goldfish_pos/screens/admin/client_manager_screen.dart';
+import 'package:goldfish_pos/screens/admin/client_onboarding_screen.dart';
 import 'package:goldfish_pos/screens/admin/payment_method_management_screen.dart';
 import 'package:goldfish_pos/screens/admin/twilio_credentials_screen.dart';
 import 'package:goldfish_pos/widgets/pin_numpad.dart';
@@ -115,6 +117,56 @@ class SystemAdminDashboardScreen extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 32),
+
+            // ── SaaS Client Management ────────────────────────────────────
+            Text(
+              'SaaS Client Management',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Onboard new nail salon clients and manage existing deployments.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 12),
+            GridView.count(
+              crossAxisCount: 3,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 1.2,
+              children: [
+                _SysAdminCard(
+                  title: 'Onboard New Client',
+                  subtitle: 'Step-by-step setup wizard',
+                  icon: Icons.add_business_outlined,
+                  color: Colors.green.shade700,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ClientOnboardingScreen(),
+                    ),
+                  ),
+                ),
+                _SysAdminCard(
+                  title: 'Client Manager',
+                  subtitle: 'View all clients & scripts',
+                  icon: Icons.store_mall_directory_outlined,
+                  color: Colors.indigo.shade600,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ClientManagerScreen(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
           ],
         ),
       ),

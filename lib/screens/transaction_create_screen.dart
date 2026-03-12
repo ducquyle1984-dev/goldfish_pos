@@ -1020,9 +1020,7 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         border: Border(
-          top: BorderSide(
-            color: Theme.of(context).colorScheme.outlineVariant,
-          ),
+          top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
         ),
       ),
       padding: const EdgeInsets.all(16),
@@ -2241,9 +2239,7 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
           decoration: BoxDecoration(
             color: active ? color : Colors.transparent,
             border: Border.all(
-              color: active
-                  ? color
-                  : Theme.of(ctx).colorScheme.outline,
+              color: active ? color : Theme.of(ctx).colorScheme.outline,
             ),
             borderRadius: BorderRadius.circular(8),
           ),
@@ -2478,9 +2474,7 @@ class _CustomerSearchFieldState extends State<_CustomerSearchField> {
                 label,
                 style: TextStyle(
                   color: widget.selected == null
-                      ? Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withOpacity(0.5)
+                      ? Theme.of(context).colorScheme.onSurface.withOpacity(0.5)
                       : Theme.of(context).colorScheme.onSurface,
                 ),
               ),
