@@ -51,11 +51,11 @@ $originalConfig = Get-Content lib\firebase_options.dart -Raw
 
 # ── Build once per client (each needs its own firebase_options.dart) ──────────
 $results = @()
-$failed  = @()
+$failed = @()
 
 foreach ($client in $clients) {
     $projectId = $client.projectId
-    $name      = $client.name
+    $name = $client.name
 
     Write-Host ""
     Write-Host "──────────────────────────────────────────────────────" -ForegroundColor White
@@ -82,12 +82,14 @@ foreach ($client in $clients) {
         $results += [PSCustomObject]@{ Name = $name; ProjectId = $projectId; Status = "OK" }
         Write-Host " ✓ $name deployed successfully!" -ForegroundColor Green
 
-    } catch {
+    }
+    catch {
         $results += [PSCustomObject]@{ Name = $name; ProjectId = $projectId; Status = "FAILED: $_" }
-        $failed  += $projectId
+        $failed += $projectId
         Write-Host " ✗ $name FAILED: $_" -ForegroundColor Red
         Write-Host "   Continuing to next client..." -ForegroundColor Yellow
-    } finally {
+    }
+    finally {
         # Always restore original firebase_options.dart before moving on
         Set-Content lib\firebase_options.dart $originalConfig
     }
@@ -100,7 +102,7 @@ Write-Host " DEPLOY COMPLETE — Results Summary" -ForegroundColor Cyan
 Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Cyan
 foreach ($r in $results) {
     $color = if ($r.Status -eq "OK") { "Green" } else { "Red" }
-    $icon  = if ($r.Status -eq "OK") { "✓" } else { "✗" }
+    $icon = if ($r.Status -eq "OK") { "✓" } else { "✗" }
     Write-Host " $icon $($r.Name.PadRight(30)) $($r.Status)" -ForegroundColor $color
 }
 Write-Host ""
