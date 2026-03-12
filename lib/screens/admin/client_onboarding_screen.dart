@@ -225,11 +225,11 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
 
     return '''
 # ==============================================================
-# Goldfish POS — New Client Deployment Script
+# Goldfish POS - New Client Deployment Script
 # Client   : $salonName
 # Owner    : $ownerName ($ownerEmail)
 # Firebase : $projectId
-# URL      : https://$slug.$domain  (custom domain — set up after deploy)
+# URL      : https://$slug.$domain  (custom domain - set up after deploy)
 # Fallback : https://$projectId.web.app
 # Generated: $date
 # ==============================================================
@@ -238,10 +238,10 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
 #   1. Save this file as deploy-client.ps1 in your goldfish_pos folder
 #   2. Open PowerShell in that folder
 #   3. Run: .\\deploy-client.ps1
-#   DO NOT paste this script directly into the terminal —
+#   DO NOT paste this script directly into the terminal -
 #   error-exit commands only work correctly when run as a file.
 #
-# PREREQUISITES — install once:
+# PREREQUISITES - install once:
 #   npm install -g firebase-tools
 #   dart pub global activate flutterfire_cli
 #   firebase login
@@ -259,12 +259,12 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
 \$SLUG          = "$slug"
 \$BASE_DOMAIN   = "$domain"
 
-# ── Step 1: Create the Firebase project ─────────────────────────────────────
+# -- Step 1: Create the Firebase project -------------------------------------------
 Write-Host "`n[1/8] Creating Firebase project '\$PROJECT_ID'..." -ForegroundColor Cyan
 firebase projects:create \$PROJECT_ID --display-name \$SALON_NAME
 if (\$LASTEXITCODE -ne 0) { throw "Step 1 FAILED: Project creation failed. Check that the project ID '$projectId' is globally unique and your account has permissions." }
 
-# ── Step 2: Enable Blaze (pay-as-you-go) billing ────────────────────────────
+# -- Step 2: Enable Blaze (pay-as-you-go) billing ----------------------------------
 Write-Host ""
 Write-Host "[2/8] ACTION REQUIRED: Enable Blaze billing plan" -ForegroundColor Yellow
 Write-Host "      Open this URL and link a billing account:"
@@ -272,13 +272,13 @@ Write-Host "      https://console.firebase.google.com/project/\$PROJECT_ID/usage
 Write-Host ""
 Read-Host "      Press Enter once billing is enabled"
 
-# ── Step 3: Configure FlutterFire ───────────────────────────────────────────
+# -- Step 3: Configure FlutterFire -------------------------------------------------
 Write-Host "[3/8] Configuring FlutterFire for project '\$PROJECT_ID'..." -ForegroundColor Cyan
 \$originalConfig = Get-Content lib\\firebase_options.dart -Raw
 flutterfire configure --project=\$PROJECT_ID --platforms=web --yes
 if (\$LASTEXITCODE -ne 0) { throw "Step 3 FAILED: FlutterFire configure failed." }
 
-# ── Step 4: Build Flutter web ────────────────────────────────────────────────
+# -- Step 4: Build Flutter web ------------------------------------------------------
 Write-Host "[4/8] Building Flutter web app (release)..." -ForegroundColor Cyan
 flutter build web --release
 if (\$LASTEXITCODE -ne 0) {
@@ -286,7 +286,7 @@ if (\$LASTEXITCODE -ne 0) {
     throw "Step 4 FAILED: Flutter build failed. firebase_options.dart has been restored."
 }
 
-# ── Step 5: Deploy to Firebase Hosting ──────────────────────────────────────
+# -- Step 5: Deploy to Firebase Hosting --------------------------------------------
 Write-Host "[5/8] Deploying to Firebase Hosting..." -ForegroundColor Cyan
 firebase use \$PROJECT_ID
 firebase deploy --only hosting --project \$PROJECT_ID
@@ -295,7 +295,7 @@ if (\$LASTEXITCODE -ne 0) {
     throw "Step 5 FAILED: Firebase deploy failed. firebase_options.dart has been restored."
 }
 
-# ── Step 6: Create the admin Firebase Auth user ──────────────────────────────
+# -- Step 6: Create the admin Firebase Auth user -----------------------------------
 Write-Host "[6/8] Creating admin user '\$ADMIN_EMAIL'..." -ForegroundColor Cyan
 \$webAppId = (firebase apps:list WEB --project \$PROJECT_ID --json | ConvertFrom-Json).result[0].appId
 \$sdkConfig = (firebase apps:sdkconfig WEB \$webAppId --project \$PROJECT_ID --json | ConvertFrom-Json).result.sdkConfig
@@ -322,7 +322,7 @@ try {
     Write-Host "            Email: \$ADMIN_EMAIL   Password: \$TEMP_PASSWORD" -ForegroundColor Yellow
 }
 
-# ── Step 7: Seed Admin & Sys-Admin PINs in Firestore ────────────────────────
+# -- Step 7: Seed Admin & Sys-Admin PINs in Firestore ------------------------------
 Write-Host "[7/8] Seeding PINs in Firestore..." -ForegroundColor Cyan
 
 if (\$authResp -and \$authResp.idToken) {
@@ -349,19 +349,19 @@ if (\$authResp -and \$authResp.idToken) {
         Write-Host "            settings/systemAdmin.pin = \$SYSADMIN_PIN" -ForegroundColor Yellow
     }
 } else {
-    Write-Host "   Skipping PIN seed (no auth token — set PINs manually in Firestore)." -ForegroundColor Yellow
+    Write-Host "   Skipping PIN seed (no auth token - set PINs manually in Firestore)." -ForegroundColor Yellow
 }
 
-# ── Step 8: Restore your dev firebase_options.dart ──────────────────────────
+# -- Step 8: Restore your dev firebase_options.dart --------------------------------
 Write-Host "[8/8] Restoring your development firebase_options.dart..." -ForegroundColor Cyan
 Set-Content lib\\firebase_options.dart \$originalConfig
 Write-Host "   Restored." -ForegroundColor Green
 
-# ── Custom domain reminder ───────────────────────────────────────────────────
+# -- Custom domain reminder ---------------------------------------------------------
 Write-Host ""
-Write-Host "═══════════════════════════════════════════" -ForegroundColor Green
+Write-Host "===========================================" -ForegroundColor Green
 Write-Host " CLIENT ONBOARDED SUCCESSFULLY!" -ForegroundColor Green
-Write-Host "═══════════════════════════════════════════" -ForegroundColor Green
+Write-Host "===========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host " Salon     : \$SALON_NAME"
 Write-Host " Temp URL  : https://\$PROJECT_ID.web.app"
