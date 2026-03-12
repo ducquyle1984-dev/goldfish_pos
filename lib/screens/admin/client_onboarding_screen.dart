@@ -75,8 +75,7 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
 
   String _projectIdFromSlug(String slug) {
     // Firebase project IDs: 6–30 chars, lowercase, letters, digits, hyphens.
-    final raw = 'gnp-$slug';
-    final safe = raw
+    final safe = slug
         .replaceAll(RegExp(r'[^a-z0-9-]'), '')
         .replaceAll(RegExp(r'-+'), '-');
     return safe.length > 30 ? safe.substring(0, 30) : safe;
@@ -97,13 +96,8 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
       if (_projectIdCtrl.text != pid) _projectIdCtrl.text = pid;
     });
 
-    // Keep admin email in sync with owner email initially.
-    _ownerEmailCtrl.addListener(() {
-      if (_adminEmailCtrl.text.isEmpty ||
-          _adminEmailCtrl.text == _ownerEmailCtrl.text) {
-        _adminEmailCtrl.text = _ownerEmailCtrl.text;
-      }
-    });
+    // Auto-generate username from salon name + zip (e.g. citynails.75043).
+    _zipCtrl.addListener(_updateUsername);
   }
 
   void _onSalonNameChanged() {
@@ -111,11 +105,23 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
     if (_slugCtrl.text != slug) {
       _slugCtrl.text = slug;
     }
+    _updateUsername();
+  }
+
+  void _updateUsername() {
+    final name = _salonNameCtrl.text.toLowerCase().trim().replaceAll(
+      RegExp(r'[^a-z0-9]'),
+      '',
+    );
+    final zip = _zipCtrl.text.trim();
+    final username = zip.isNotEmpty ? '$name.$zip' : name;
+    if (_adminEmailCtrl.text != username) _adminEmailCtrl.text = username;
   }
 
   @override
   void dispose() {
     _salonNameCtrl.removeListener(_onSalonNameChanged);
+    _zipCtrl.removeListener(_updateUsername);
     for (final c in [
       _salonNameCtrl,
       _ownerNameCtrl,
@@ -194,7 +200,7 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
     slug: _slugCtrl.text.trim(),
     firebaseProjectId: _projectIdCtrl.text.trim(),
     baseDomain: _domainCtrl.text.trim(),
-    adminEmail: _adminEmailCtrl.text.trim(),
+    adminEmail: '${_adminEmailCtrl.text.trim()}@goldfish.internal',
     tempPassword: _tempPassCtrl.text.trim(),
     plan: _plan,
     notes: _notesCtrl.text.trim(),
@@ -206,7 +212,8 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
   String _generateScript() {
     final projectId = _projectIdCtrl.text.trim();
     final salonName = _salonNameCtrl.text.trim();
-    final adminEmail = _adminEmailCtrl.text.trim();
+    final adminUsername = _adminEmailCtrl.text.trim();
+    final adminEmail = '$adminUsername@goldfish.internal';
     final tempPass = _tempPassCtrl.text.trim();
     final adminPin = _adminPinCtrl.text.trim();
     final sysPin = _sysAdminPinCtrl.text.trim();
@@ -617,11 +624,11 @@ Write-Host ""
                   _Field(
                     ctrl: _projectIdCtrl,
                     label: 'Firebase Project ID *',
-                    hint: 'e.g. gnp-city-nails',
+                    hint: 'e.g. city-nails',
                     icon: Icons.cloud_outlined,
                     helperText:
                         'Must be globally unique (6–30 chars, lowercase, '
-                        'letters/digits/hyphens). Will be auto-prefixed with "gnp-".',
+                        'letters/digits/hyphens).',
                     validator: (v) {
                       if (v == null || v.isEmpty) return 'Required';
                       if (v.length < 6) return 'Must be at least 6 characters';
@@ -734,11 +741,19 @@ Write-Host ""
                   const SizedBox(height: 16),
                   _Field(
                     ctrl: _adminEmailCtrl,
-                    label: 'Admin Login Email *',
-                    hint: 'e.g. admin@citynails.com',
-                    icon: Icons.email_outlined,
-                    keyboardType: TextInputType.emailAddress,
-                    validator: _emailValidator,
+                    label: 'Admin Username *',
+                    hint: 'e.g. citynails.75043',
+                    icon: Icons.person_outlined,
+                    helperText:
+                        'Auto-filled from salon name + ZIP. '
+                        'Edit if needed. No spaces or @ symbols.',
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) return 'Required';
+                      if (v.trim().contains(' ') || v.trim().contains('@')) {
+                        return 'No spaces or @ symbols';
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
@@ -922,7 +937,8 @@ Write-Host ""
     final slug = _slugCtrl.text.trim();
     final projectId = _projectIdCtrl.text.trim();
     final domain = _domainCtrl.text.trim();
-    final adminEmail = _adminEmailCtrl.text.trim();
+    final adminUsername = _adminEmailCtrl.text.trim();
+    final adminEmail = '$adminUsername@goldfish.internal';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -976,7 +992,16 @@ Write-Host ""
                   'https://$projectId.web.app',
                 ),
                 const Divider(height: 24),
-                _ReviewRow(Icons.email_outlined, 'Admin Login', adminEmail),
+                _ReviewRow(
+                  Icons.person_outlined,
+                  'Admin Username',
+                  _adminEmailCtrl.text.trim(),
+                ),
+                _ReviewRow(
+                  Icons.email_outlined,
+                  'Login Email (internal)',
+                  adminEmail,
+                ),
                 _ReviewRow(Icons.workspace_premium_outlined, 'Plan', _plan),
                 if (_notesCtrl.text.isNotEmpty)
                   _ReviewRow(

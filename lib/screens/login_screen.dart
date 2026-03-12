@@ -51,7 +51,7 @@ class _LoginScreenState extends State<LoginScreen>
     });
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailCtrl.text.trim(),
+        email: '${_emailCtrl.text.trim()}@goldfish.internal',
         password: _passCtrl.text.trim(),
       );
     } on FirebaseAuthException catch (e) {
@@ -199,16 +199,15 @@ class _LoginScreenState extends State<LoginScreen>
                               ),
                               const SizedBox(height: 28),
 
-                              // Email
+                              // Username
                               _GlassField(
                                 controller: _emailCtrl,
-                                label: 'Email Address',
-                                icon: Icons.email_outlined,
-                                keyboardType: TextInputType.emailAddress,
+                                label: 'Username',
+                                icon: Icons.person_outlined,
                                 textInputAction: TextInputAction.next,
                                 validator: (v) =>
                                     (v == null || v.trim().isEmpty)
-                                    ? 'Please enter your email'
+                                    ? 'Please enter your username'
                                     : null,
                               ),
                               const SizedBox(height: 16),
