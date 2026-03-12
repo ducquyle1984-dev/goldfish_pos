@@ -234,13 +234,21 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
 # Generated: $date
 # ==============================================================
 #
+# HOW TO RUN:
+#   1. Save this file as deploy-client.ps1 in your goldfish_pos folder
+#   2. Open PowerShell in that folder
+#   3. Run: .\\deploy-client.ps1
+#   DO NOT paste this script directly into the terminal —
+#   error-exit commands only work correctly when run as a file.
+#
 # PREREQUISITES — install once:
 #   npm install -g firebase-tools
 #   dart pub global activate flutterfire_cli
 #   firebase login
-#
-# Run this script from your goldfish_pos project root directory.
 # ==============================================================
+
+# Stop immediately on any unhandled error
+\$ErrorActionPreference = 'Stop'
 
 \$PROJECT_ID    = "$projectId"
 \$SALON_NAME    = "$salonName"
@@ -254,7 +262,7 @@ class _ClientOnboardingScreenState extends State<ClientOnboardingScreen> {
 # ── Step 1: Create the Firebase project ─────────────────────────────────────
 Write-Host "`n[1/8] Creating Firebase project '\$PROJECT_ID'..." -ForegroundColor Cyan
 firebase projects:create \$PROJECT_ID --display-name \$SALON_NAME
-if (\$LASTEXITCODE -ne 0) { Write-Error "Project creation failed. It may already exist."; exit 1 }
+if (\$LASTEXITCODE -ne 0) { throw "Step 1 FAILED: Project creation failed. Check that the project ID '$projectId' is globally unique and your account has permissions." }
 
 # ── Step 2: Enable Blaze (pay-as-you-go) billing ────────────────────────────
 Write-Host ""
@@ -268,16 +276,14 @@ Read-Host "      Press Enter once billing is enabled"
 Write-Host "[3/8] Configuring FlutterFire for project '\$PROJECT_ID'..." -ForegroundColor Cyan
 \$originalConfig = Get-Content lib\\firebase_options.dart -Raw
 flutterfire configure --project=\$PROJECT_ID --platforms=web --yes
-if (\$LASTEXITCODE -ne 0) { Write-Error "FlutterFire configure failed."; exit 1 }
+if (\$LASTEXITCODE -ne 0) { throw "Step 3 FAILED: FlutterFire configure failed." }
 
 # ── Step 4: Build Flutter web ────────────────────────────────────────────────
 Write-Host "[4/8] Building Flutter web app (release)..." -ForegroundColor Cyan
 flutter build web --release
 if (\$LASTEXITCODE -ne 0) {
-    # Restore config before exiting
     Set-Content lib\\firebase_options.dart \$originalConfig
-    Write-Error "Flutter build failed."
-    exit 1
+    throw "Step 4 FAILED: Flutter build failed. firebase_options.dart has been restored."
 }
 
 # ── Step 5: Deploy to Firebase Hosting ──────────────────────────────────────
@@ -286,8 +292,7 @@ firebase use \$PROJECT_ID
 firebase deploy --only hosting --project \$PROJECT_ID
 if (\$LASTEXITCODE -ne 0) {
     Set-Content lib\\firebase_options.dart \$originalConfig
-    Write-Error "Firebase deploy failed."
-    exit 1
+    throw "Step 5 FAILED: Firebase deploy failed. firebase_options.dart has been restored."
 }
 
 # ── Step 6: Create the admin Firebase Auth user ──────────────────────────────
@@ -296,46 +301,56 @@ Write-Host "[6/8] Creating admin user '\$ADMIN_EMAIL'..." -ForegroundColor Cyan
 \$sdkConfig = (firebase apps:sdkconfig WEB \$webAppId --project \$PROJECT_ID --json | ConvertFrom-Json).result.sdkConfig
 \$API_KEY = \$sdkConfig.apiKey
 
-\$body = @{
-    email            = \$ADMIN_EMAIL
-    password         = \$TEMP_PASSWORD
+\$authBody = @{
+    email             = \$ADMIN_EMAIL
+    password          = \$TEMP_PASSWORD
     returnSecureToken = \$true
 } | ConvertTo-Json -Compress
 
+\$authResp = \$null
 try {
     \$authResp = Invoke-RestMethod `
         -Method Post `
         -Uri "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=\$API_KEY" `
-        -Body \$body `
+        -Body \$authBody `
         -ContentType "application/json"
     Write-Host "   Admin user created. UID: \$(\$authResp.localId)" -ForegroundColor Green
 } catch {
-    Write-Warning "Could not auto-create admin user: \$_"
-    Write-Warning "Create the user manually in Firebase Console > Authentication."
+    Write-Host "   WARNING: Could not auto-create admin user: \$_" -ForegroundColor Yellow
+    Write-Host "   ACTION : Enable Email/Password auth in Firebase Console, then" -ForegroundColor Yellow
+    Write-Host "            create the user manually: Authentication > Add user" -ForegroundColor Yellow
+    Write-Host "            Email: \$ADMIN_EMAIL   Password: \$TEMP_PASSWORD" -ForegroundColor Yellow
 }
 
 # ── Step 7: Seed Admin & Sys-Admin PINs in Firestore ────────────────────────
 Write-Host "[7/8] Seeding PINs in Firestore..." -ForegroundColor Cyan
-\$idToken = \$authResp.idToken   # use admin's token to write the PIN docs
 
-\$firestoreBase = "https://firestore.googleapis.com/v1/projects/\$PROJECT_ID/databases/(default)/documents"
+if (\$authResp -and \$authResp.idToken) {
+    \$idToken = \$authResp.idToken
+    \$firestoreBase = "https://firestore.googleapis.com/v1/projects/\$PROJECT_ID/databases/(default)/documents"
 
-function Write-FirestoreDoc(\$path, \$fields) {
-    \$body = @{ fields = \$fields } | ConvertTo-Json -Depth 5 -Compress
-    Invoke-RestMethod -Method Patch `
-        -Uri "\$firestoreBase/\$path" `
-        -Headers @{ Authorization = "Bearer \$idToken" } `
-        -Body \$body `
-        -ContentType "application/json" | Out-Null
-}
+    function Write-FirestoreDoc(\$path, \$fields) {
+        \$docBody = @{ fields = \$fields } | ConvertTo-Json -Depth 5 -Compress
+        Invoke-RestMethod -Method Patch `
+            -Uri "\$firestoreBase/\$path" `
+            -Headers @{ Authorization = "Bearer \$idToken" } `
+            -Body \$docBody `
+            -ContentType "application/json" | Out-Null
+    }
 
-Write-FirestoreDoc "settings/admin" @{
-    pin = @{ stringValue = \$ADMIN_PIN }
+    try {
+        Write-FirestoreDoc "settings/admin" @{ pin = @{ stringValue = \$ADMIN_PIN } }
+        Write-FirestoreDoc "settings/systemAdmin" @{ pin = @{ stringValue = \$SYSADMIN_PIN } }
+        Write-Host "   PINs seeded." -ForegroundColor Green
+    } catch {
+        Write-Host "   WARNING: Could not seed PINs: \$_" -ForegroundColor Yellow
+        Write-Host "   ACTION : Set PINs manually in Firestore:" -ForegroundColor Yellow
+        Write-Host "            settings/admin.pin = \$ADMIN_PIN" -ForegroundColor Yellow
+        Write-Host "            settings/systemAdmin.pin = \$SYSADMIN_PIN" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "   Skipping PIN seed (no auth token — set PINs manually in Firestore)." -ForegroundColor Yellow
 }
-Write-FirestoreDoc "settings/systemAdmin" @{
-    pin = @{ stringValue = \$SYSADMIN_PIN }
-}
-Write-Host "   PINs seeded." -ForegroundColor Green
 
 # ── Step 8: Restore your dev firebase_options.dart ──────────────────────────
 Write-Host "[8/8] Restoring your development firebase_options.dart..." -ForegroundColor Cyan
@@ -1105,10 +1120,12 @@ Write-Host ""
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Run this script from your goldfish_pos project directory. '
-                          'It will temporarily overwrite lib/firebase_options.dart '
-                          'during the build, then restore it automatically. '
-                          'Commit any pending changes before running.',
+                          'Save this script as a .ps1 file (e.g. deploy-client.ps1) '
+                          'in your goldfish_pos folder, then run it with: '
+                          '.\\deploy-client.ps1\n'
+                          'Do NOT paste it into the terminal — '
+                          'error stops only work when run as a file. '
+                          'Commit any pending git changes first.',
                           style: TextStyle(
                             fontSize: 12.5,
                             color: Colors.amber.shade900,
