@@ -1,0 +1,8 @@
+[
+  {
+    "projectId": "EXAMPLE-project-id",
+    "name": "EXAMPLE Salon Name",
+    "slug": "example-slug",
+    "active": false
+  }
+]

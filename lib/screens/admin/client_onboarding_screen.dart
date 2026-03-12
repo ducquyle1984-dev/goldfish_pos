@@ -1123,9 +1123,11 @@ Write-Host ""
                           'Save this script as a .ps1 file (e.g. deploy-client.ps1) '
                           'in your goldfish_pos folder, then run it with: '
                           '.\\deploy-client.ps1\n'
-                          'Do NOT paste it into the terminal — '
-                          'error stops only work when run as a file. '
-                          'Commit any pending git changes first.',
+                          'Do NOT paste it into the terminal — error stops only work when run as a file. '
+                          'Commit any pending git changes first.\n\n'
+                          'After onboarding, add this client to client-projects.json '
+                          '(set "active": true) so future code updates deploy to them '
+                          'automatically via deploy-all-clients.ps1.',
                           style: TextStyle(
                             fontSize: 12.5,
                             color: Colors.amber.shade900,
