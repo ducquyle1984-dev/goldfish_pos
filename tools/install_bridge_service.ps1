@@ -1,50 +1,56 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Installs the Goldfish POS cash drawer bridge as a Windows startup task.
-    Run ONCE — the bridge then starts automatically every time Windows starts.
-
-.DESCRIPTION
-    This script will:
-      1. Locate your Python installation (and install pywin32 if missing)
-      2. Copy cash_drawer_bridge.py to a permanent location
-      3. Register a Task Scheduler task that runs the bridge silently at logon
-      4. Start the bridge immediately — no reboot needed
-
+    No pip install or pywin32 needed — uses only Python standard library (ctypes).
     Safe to run multiple times; updates the existing task if it already exists.
+
+.USAGE
+    Right-click install_bridge_service.ps1 → Run with PowerShell
+    (or run run_installer.bat which handles the ExecutionPolicy for you)
 #>
 
 $ErrorActionPreference = 'Stop'
 
-$TaskName   = 'GoldfishPOS_CashDrawerBridge'
-$AppDir     = "$env:APPDATA\GoldfishPOS"
-$ScriptName = 'cash_drawer_bridge.py'
-$ScriptSrc  = Join-Path $PSScriptRoot $ScriptName
-$ScriptDest = Join-Path $AppDir $ScriptName
+# ── Self-elevate to Administrator ─────────────────────────────────────────────
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host '  Requesting administrator rights...' -ForegroundColor Yellow
+    Start-Process PowerShell -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Wait
+    exit
+}
+
+$TaskName     = 'GoldfishPOS_CashDrawerBridge'
+$AppDir       = "$env:APPDATA\GoldfishPOS"
+$ScriptName   = 'cash_drawer_bridge.py'
+$ScriptSrc    = Join-Path $PSScriptRoot $ScriptName
+$ScriptDest   = Join-Path $AppDir $ScriptName
+$LauncherDest = Join-Path $AppDir 'run_bridge.bat'
+$LogDest      = Join-Path $AppDir 'bridge.log'
 
 function Write-Step { param($msg) Write-Host "  >> $msg" -ForegroundColor Cyan }
 function Write-Ok   { param($msg) Write-Host "  OK  $msg" -ForegroundColor Green }
+function Write-Warn { param($msg) Write-Host "  !!  $msg" -ForegroundColor Yellow }
 function Write-Err  { param($msg) Write-Host "`n  ERROR: $msg`n" -ForegroundColor Red; Read-Host 'Press Enter to close'; exit 1 }
 
 Write-Host ''
 Write-Host '==================================================' -ForegroundColor Cyan
 Write-Host '   Goldfish POS  —  Cash Drawer Bridge Installer  ' -ForegroundColor Cyan
+Write-Host '   No pip install needed (standard library only)  ' -ForegroundColor Cyan
 Write-Host '==================================================' -ForegroundColor Cyan
 Write-Host ''
 
-# ── 1. Locate python.exe ──────────────────────────────────────────────────────
+# ── 1. Locate Python ──────────────────────────────────────────────────────────
 Write-Step 'Looking for Python 3...'
 
 $pythonExe = $null
 try { $pythonExe = (Get-Command python.exe -ErrorAction Stop).Source } catch {}
 
 if (-not $pythonExe) {
-    # Search common install paths
     $globs = @(
         "$env:LOCALAPPDATA\Programs\Python\Python3*\python.exe",
-        "C:\Python3*\python.exe",
-        "C:\Program Files\Python3*\python.exe",
-        "C:\Program Files (x86)\Python3*\python.exe"
+        'C:\Python3*\python.exe',
+        'C:\Program Files\Python3*\python.exe',
+        'C:\Program Files (x86)\Python3*\python.exe'
     )
     foreach ($g in $globs) {
         $hit = Get-Item $g -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
@@ -53,89 +59,67 @@ if (-not $pythonExe) {
 }
 
 if (-not $pythonExe) {
-    Write-Err 'Python 3 not found. Install it from https://python.org — tick "Add Python to PATH" during setup, then re-run this script.'
+    Write-Err 'Python 3 not found.
+Install it from https://python.org — tick "Add Python to PATH" during setup — then re-run this script.'
 }
 
-Write-Ok "Found Python: $pythonExe"
+# Reject Microsoft Store Python — it is a stub that cannot run scripts reliably
+if ($pythonExe -like '*WindowsApps*') {
+    Write-Err "Found Microsoft Store Python at:
+  $pythonExe
 
-# Use pythonw.exe (no console window) when available
-$pythonwExe = Join-Path (Split-Path $pythonExe) 'pythonw.exe'
-if (-not (Test-Path $pythonwExe)) {
-    Write-Host '  (pythonw.exe not found — using python.exe; a small console may flash on startup)' -ForegroundColor Yellow
-    $pythonwExe = $pythonExe
+This version is NOT compatible. Please:
+  1. Go to https://python.org and download the real installer.
+  2. During install, check 'Add Python to PATH'.
+  3. Re-run this script."
 }
 
-# ── 2. Ensure pywin32 is installed ────────────────────────────────────────────
-Write-Step 'Checking for pywin32...'
+$pyVer = & $pythonExe --version 2>&1
+Write-Ok "Python: $pythonExe  ($pyVer)"
 
-$importTest = & $pythonExe -c "import win32print; print('ok')" 2>&1
-if ("$importTest".Trim() -ne 'ok') {
-    Write-Step 'pywin32 not found — installing now (may take a minute)...'
+# ── 2. Verify standard library modules (no pip needed) ───────────────────────
+Write-Step 'Verifying required modules (standard library only — no pip needed)...'
 
-    $pipExe = Join-Path (Split-Path $pythonExe) 'Scripts\pip.exe'
-    if (-not (Test-Path $pipExe)) { $pipExe = 'pip' }
+$check = & $pythonExe -c "import ctypes, ctypes.wintypes, subprocess, socket, json, logging; print('ok')" 2>&1
+if ("$check".Trim() -ne 'ok') {
+    Write-Err "Standard library check failed:
+$check
 
-    & $pipExe install pywin32 | Out-Host
-
-    $importTest = & $pythonExe -c "import win32print; print('ok')" 2>&1
-    if ("$importTest".Trim() -ne 'ok') {
-        Write-Err "pywin32 installation failed: $importTest"
-    }
+This is unexpected. Try a fresh Python install from https://python.org"
 }
+Write-Ok 'All required modules present.'
 
-Write-Ok 'pywin32 is ready.'
-
-# ── 2b. Run pywin32 post-install (registers DLLs — required on some systems) ──
-Write-Step 'Running pywin32 post-install step...'
-$postInstall = Join-Path (Split-Path $pythonExe) 'Scripts\pywin32_postinstall.py'
-if (Test-Path $postInstall) {
-    & $pythonExe $postInstall -install 2>&1 | Out-Null
-    Write-Ok 'pywin32 post-install complete.'
-} else {
-    Write-Host '  (pywin32_postinstall.py not found — skipping, likely not needed)' -ForegroundColor Yellow
-}
-
-# Verify import actually works after post-install
-$importTest2 = & $pythonExe -c "import win32print; print('ok')" 2>&1
-if ("$importTest2".Trim() -ne 'ok') {
-    Write-Err "win32print still cannot be imported after post-install: $importTest2"
-}
-Write-Ok 'win32print import verified.'
-
-# ── 3. Copy bridge script to permanent location ───────────────────────────────
-Write-Step "Installing bridge script to: $AppDir"
+# ── 3. Copy bridge script ─────────────────────────────────────────────────────
+Write-Step "Installing bridge to: $AppDir"
 
 if (-not (Test-Path $ScriptSrc)) {
-    Write-Err "Cannot find $ScriptSrc.`nMake sure you are running this installer from the project's tools\ folder."
+    Write-Err "Cannot find $ScriptSrc.
+Make sure you are running this installer from the project tools\ folder."
 }
 
 New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
 Copy-Item $ScriptSrc $ScriptDest -Force
-
 Write-Ok "Script copied to: $ScriptDest"
 
-# ── 4. Register scheduled task ────────────────────────────────────────────────
+# Write .bat launcher — redirects stdout+stderr to bridge.log
+$bat = "@echo off`r`n`"$pythonExe`" `"$ScriptDest`" >> `"$LogDest`" 2>&1`r`n"
+[System.IO.File]::WriteAllText($LauncherDest, $bat, [System.Text.Encoding]::ASCII)
+Write-Ok "Launcher: $LauncherDest"
+
+# ── 4. Register scheduled startup task ────────────────────────────────────────
 Write-Step 'Registering Windows startup task...'
 
-# Remove any old version first
 Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 
-$action = New-ScheduledTaskAction `
-    -Execute  $pythonwExe `
-    -Argument "`"$ScriptDest`""
-
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-
-$settings = New-ScheduledTaskSettingsSet `
+$action    = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$LauncherDest`""
+$trigger   = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$settings  = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit  0 `
-    -RestartCount        5 `
+    -RestartCount        10 `
     -RestartInterval     (New-TimeSpan -Minutes 1) `
     -MultipleInstances   IgnoreNew `
     -StartWhenAvailable
-
-$principal = New-ScheduledTaskPrincipal `
-    -UserId   "$env:USERDOMAIN\$env:USERNAME" `
-    -LogonType Interactive
+$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive
 
 Register-ScheduledTask `
     -TaskName  $TaskName `
@@ -145,29 +129,62 @@ Register-ScheduledTask `
     -Principal $principal `
     -Force | Out-Null
 
-Write-Ok "Task '$TaskName' registered (runs at every Windows logon)."
+Write-Ok "Task '$TaskName' registered — runs automatically at every Windows logon."
 
-# ── 5. Start the bridge right now ─────────────────────────────────────────────
+# ── 5. Kill any old instance + start fresh ────────────────────────────────────
 Write-Step 'Starting the bridge...'
 
-Start-ScheduledTask -TaskName $TaskName
-Start-Sleep -Seconds 2
+Get-CimInstance Win32_Process -Filter "Name LIKE 'python%'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like '*cash_drawer_bridge*' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Start-Sleep -Milliseconds 500
 
-$taskState = (Get-ScheduledTask -TaskName $TaskName).State
-if ($taskState -eq 'Running') {
-    Write-Ok 'Bridge is running now!'
-} else {
-    Write-Host "  Note: bridge state is '$taskState'. It will start automatically on your next logon." -ForegroundColor Yellow
+if (Test-Path $LogDest) { Clear-Content $LogDest }
+Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"$LauncherDest`"" -WindowStyle Hidden
+Start-Sleep -Seconds 4
+
+# ── 6. Verify bridge is responding ────────────────────────────────────────────
+Write-Step 'Verifying bridge at http://127.0.0.1:8765/status ...'
+
+$ok = $false
+for ($i = 0; $i -lt 5; $i++) {
+    try {
+        $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8765/status' -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        if ($r.StatusCode -eq 200) { $ok = $true; break }
+    } catch {}
+    Write-Host "    attempt $($i+1)/5 — waiting..."
+    Start-Sleep -Seconds 2
 }
 
-# ── Done ──────────────────────────────────────────────────────────────────────
 Write-Host ''
-Write-Host '==================================================' -ForegroundColor Green
-Write-Host '  Setup complete!                                  ' -ForegroundColor Green
-Write-Host '  The cash drawer bridge will now start           ' -ForegroundColor Green
-Write-Host '  automatically every time Windows starts.        ' -ForegroundColor Green
-Write-Host '  No further action needed.                       ' -ForegroundColor Green
-Write-Host '==================================================' -ForegroundColor Green
+if ($ok) {
+    Write-Host '==================================================' -ForegroundColor Green
+    Write-Host '  SUCCESS! Bridge is running.                     ' -ForegroundColor Green
+    Write-Host '  Go back to the POS app and click Refresh (↻).  ' -ForegroundColor Green
+    Write-Host '==================================================' -ForegroundColor Green
+} else {
+    Write-Host ''
+    Write-Warn 'Bridge did not respond after 5 attempts. Log output:'
+    Write-Host ''
+    if (Test-Path $LogDest) {
+        $lines = Get-Content $LogDest
+        if ($lines) {
+            $lines | Select-Object -Last 30 | ForEach-Object { Write-Host "    $_" }
+        } else {
+            Write-Host '    (log file is empty — Python may have crashed before writing anything)'
+        }
+    } else {
+        Write-Host '    No log file found.'
+        Write-Host "    Python:   $pythonExe"
+        Write-Host "    Launcher: $LauncherDest"
+    }
+    Write-Host ''
+    Write-Warn 'To diagnose: double-click run_bridge_debug.bat in the same folder.'
+    Write-Warn 'Common fixes:'
+    Write-Warn '  "No default printer" → set one in Windows Settings → Printers & scanners'
+    Write-Warn '  Any import error → try a fresh Python install from https://python.org'
+}
+
 Write-Host ''
 Write-Host "  To uninstall later, run: uninstall_bridge_service.ps1" -ForegroundColor Gray
 Write-Host ''
