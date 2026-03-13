@@ -1,3 +1,4 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:goldfish_pos/models/customer_model.dart';
 import 'package:goldfish_pos/models/item_category_model.dart';
@@ -118,7 +119,7 @@ class _ReportsScreenState extends State<ReportsScreen>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 3, vsync: this);
+    _tab = TabController(length: 4, vsync: this);
     _load();
   }
 
@@ -662,6 +663,7 @@ class _ReportsScreenState extends State<ReportsScreen>
                   Tab(text: 'Daily Report'),
                   Tab(text: 'Payroll'),
                   Tab(text: 'Customers'),
+                  Tab(text: 'Analytics'),
                 ],
               ),
             ],
@@ -701,6 +703,13 @@ class _ReportsScreenState extends State<ReportsScreen>
                       currency: _currency,
                       dateLabel: _dateLabel,
                       timeLabel: _timeLabel,
+                    ),
+                    _AnalyticsReport(
+                      transactions: _filteredTransactions,
+                      customers: _customers,
+                      startDate: _startDate,
+                      endDate: _endDate,
+                      currency: _currency,
                     ),
                   ],
                 ),
@@ -1992,6 +2001,888 @@ class _CustomerCardState extends State<_CustomerCard> {
             ),
             const SizedBox(height: 4),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+// ===========================================================================
+// Analytics Tab – charts & trends
+// ===========================================================================
+class _AnalyticsReport extends StatefulWidget {
+  final List<Transaction> transactions;
+  final List<Customer> customers;
+  final DateTime startDate;
+  final DateTime endDate;
+  final NumberFormat currency;
+
+  const _AnalyticsReport({
+    required this.transactions,
+    required this.customers,
+    required this.startDate,
+    required this.endDate,
+    required this.currency,
+  });
+
+  @override
+  State<_AnalyticsReport> createState() => _AnalyticsReportState();
+}
+
+class _AnalyticsReportState extends State<_AnalyticsReport> {
+  int? _touchedPaymentIndex;
+  int? _touchedCustomerIndex;
+
+  // ── Derived data helpers ──────────────────────────────────────────────────
+
+  /// Revenue grouped by date (for the date-range in scope).
+  Map<String, double> _revenueByDay() {
+    final map = <String, double>{};
+    final fmt = DateFormat('MM/dd');
+    // Seed all days in range with 0 so bars always appear
+    var cur = DateTime(
+      widget.startDate.year,
+      widget.startDate.month,
+      widget.startDate.day,
+    );
+    final endDay = DateTime(
+      widget.endDate.year,
+      widget.endDate.month,
+      widget.endDate.day,
+    );
+    while (!cur.isAfter(endDay)) {
+      map[fmt.format(cur)] = 0;
+      cur = cur.add(const Duration(days: 1));
+    }
+    for (final tx in widget.transactions) {
+      if (tx.status == TransactionStatus.voided) continue;
+      final key = fmt.format(tx.createdAt);
+      map[key] = (map[key] ?? 0) + tx.totalAmount;
+    }
+    return map;
+  }
+
+  /// Revenue grouped by month (for longer ranges).
+  Map<String, double> _revenueByMonth() {
+    final map = <String, double>{};
+    for (final tx in widget.transactions) {
+      if (tx.status == TransactionStatus.voided) continue;
+      final key = DateFormat('MMM yy').format(tx.createdAt);
+      map[key] = (map[key] ?? 0) + tx.totalAmount;
+    }
+    return map;
+  }
+
+  /// Transactions count grouped by hour of day (0–23).
+  Map<int, int> _txByHour() {
+    final map = <int, int>{};
+    for (var h = 0; h < 24; h++) map[h] = 0;
+    for (final tx in widget.transactions) {
+      if (tx.status == TransactionStatus.voided) continue;
+      final h = tx.createdAt.hour;
+      map[h] = (map[h] ?? 0) + 1;
+    }
+    return map;
+  }
+
+  /// Revenue by payment method.
+  Map<String, double> _revenueByPayment() {
+    final map = <String, double>{};
+    for (final tx in widget.transactions) {
+      if (tx.status == TransactionStatus.voided) continue;
+      for (final p in tx.payments) {
+        map[p.paymentMethodName] =
+            (map[p.paymentMethodName] ?? 0) + p.amountPaid;
+      }
+    }
+    return map;
+  }
+
+  /// Top N services by revenue.
+  List<MapEntry<String, double>> _topServices({int n = 8}) {
+    final map = <String, double>{};
+    for (final tx in widget.transactions) {
+      if (tx.status == TransactionStatus.voided) continue;
+      for (final item in tx.items) {
+        map[item.itemName] = (map[item.itemName] ?? 0) + item.subtotal;
+      }
+    }
+    final sorted = map.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return sorted.take(n).toList();
+  }
+
+  /// Revenue by technician.
+  Map<String, double> _revenueByTech() {
+    final map = <String, double>{};
+    for (final tx in widget.transactions) {
+      if (tx.status == TransactionStatus.voided) continue;
+      for (final item in tx.items) {
+        map[item.employeeName] = (map[item.employeeName] ?? 0) + item.subtotal;
+      }
+    }
+    return map;
+  }
+
+  // ── Chart colors ──────────────────────────────────────────────────────────
+  static const _chartColors = [
+    Color(0xFF2196F3),
+    Color(0xFF4CAF50),
+    Color(0xFFFF9800),
+    Color(0xFF9C27B0),
+    Color(0xFFE91E63),
+    Color(0xFF00BCD4),
+    Color(0xFF8BC34A),
+    Color(0xFFFF5722),
+    Color(0xFF607D8B),
+    Color(0xFFFFC107),
+  ];
+
+  Color _colorAt(int i) => _chartColors[i % _chartColors.length];
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  Widget _sectionTitle(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Text(
+      text,
+      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+    ),
+  );
+
+  Widget _chartCard({
+    required String title,
+    required Widget child,
+    String? subtitle,
+  }) => Card(
+    elevation: 2,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    margin: const EdgeInsets.only(bottom: 20),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+            ),
+          ],
+          const SizedBox(height: 16),
+          child,
+        ],
+      ),
+    ),
+  );
+
+  // ── Revenue Bar Chart ─────────────────────────────────────────────────────
+  Widget _buildRevenueChart() {
+    final dayCount = widget.endDate.difference(widget.startDate).inDays + 1;
+    final useMonths = dayCount > 60;
+    final data = useMonths ? _revenueByMonth() : _revenueByDay();
+    final keys = data.keys.toList();
+    final values = data.values.toList();
+    final maxVal = values.fold<double>(0, (m, v) => v > m ? v : m);
+    final barGroups = List.generate(keys.length, (i) {
+      return BarChartGroupData(
+        x: i,
+        barRods: [
+          BarChartRodData(
+            toY: values[i],
+            width: keys.length <= 7 ? 22 : (keys.length <= 14 ? 14 : 8),
+            color: Colors.blue.shade400,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ],
+      );
+    });
+
+    final subtitle = useMonths
+        ? 'Monthly revenue'
+        : 'Daily revenue (${DateFormat('MMM d').format(widget.startDate)} – ${DateFormat('MMM d').format(widget.endDate)})';
+
+    return _chartCard(
+      title: 'Revenue Over Time',
+      subtitle: subtitle,
+      child: SizedBox(
+        height: 200,
+        child: BarChart(
+          BarChartData(
+            maxY: maxVal * 1.15,
+            barGroups: barGroups,
+            gridData: FlGridData(
+              show: true,
+              drawVerticalLine: false,
+              getDrawingHorizontalLine: (_) =>
+                  FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+            ),
+            borderData: FlBorderData(show: false),
+            titlesData: FlTitlesData(
+              leftTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  reservedSize: 52,
+                  getTitlesWidget: (v, meta) {
+                    if (v == 0 || v == meta.max) return const SizedBox.shrink();
+                    return Text(
+                      v >= 1000
+                          ? '\$${(v / 1000).toStringAsFixed(1)}k'
+                          : '\$${v.toInt()}',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade500,
+                      ),
+                    );
+                  },
+                ),
+              ),
+              rightTitles: const AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
+              topTitles: const AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
+              bottomTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  reservedSize: 28,
+                  interval: keys.length <= 7
+                      ? 1
+                      : (keys.length <= 14 ? 2 : (keys.length <= 31 ? 5 : 1)),
+                  getTitlesWidget: (v, meta) {
+                    final i = v.toInt();
+                    if (i < 0 || i >= keys.length)
+                      return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        keys[i],
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            barTouchData: BarTouchData(
+              touchTooltipData: BarTouchTooltipData(
+                getTooltipColor: (_) => Colors.blueGrey.shade800,
+                getTooltipItem: (group, _, rod, __) => BarTooltipItem(
+                  '${keys[group.x]}\n${widget.currency.format(rod.toY)}',
+                  const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Hourly Traffic Bar Chart ──────────────────────────────────────────────
+  Widget _buildHourlyChart() {
+    final data = _txByHour();
+    final maxVal = data.values.fold<int>(0, (m, v) => v > m ? v : m).toDouble();
+    final barGroups = List.generate(24, (h) {
+      final isPeakHour = h >= 9 && h <= 18;
+      return BarChartGroupData(
+        x: h,
+        barRods: [
+          BarChartRodData(
+            toY: data[h]!.toDouble(),
+            width: 10,
+            color: isPeakHour ? Colors.teal.shade400 : Colors.teal.shade200,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ],
+      );
+    });
+
+    return _chartCard(
+      title: 'Busiest Hours',
+      subtitle: 'Number of transactions by hour of day',
+      child: SizedBox(
+        height: 180,
+        child: BarChart(
+          BarChartData(
+            maxY: maxVal < 1 ? 5 : maxVal * 1.2,
+            barGroups: barGroups,
+            gridData: FlGridData(
+              show: true,
+              drawVerticalLine: false,
+              getDrawingHorizontalLine: (_) =>
+                  FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+            ),
+            borderData: FlBorderData(show: false),
+            titlesData: FlTitlesData(
+              leftTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  reservedSize: 28,
+                  getTitlesWidget: (v, meta) {
+                    if (v == 0 || v == meta.max) return const SizedBox.shrink();
+                    return Text(
+                      '${v.toInt()}',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade500,
+                      ),
+                    );
+                  },
+                ),
+              ),
+              rightTitles: const AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
+              topTitles: const AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
+              bottomTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  reservedSize: 24,
+                  getTitlesWidget: (v, meta) {
+                    final h = v.toInt();
+                    if (h % 3 != 0) return const SizedBox.shrink();
+                    final label = h == 0
+                        ? '12a'
+                        : h < 12
+                        ? '${h}a'
+                        : h == 12
+                        ? '12p'
+                        : '${h - 12}p';
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            barTouchData: BarTouchData(
+              touchTooltipData: BarTouchTooltipData(
+                getTooltipColor: (_) => Colors.blueGrey.shade800,
+                getTooltipItem: (group, _, rod, __) {
+                  final h = group.x;
+                  final label = h == 0
+                      ? '12 AM'
+                      : h < 12
+                      ? '$h AM'
+                      : h == 12
+                      ? '12 PM'
+                      : '${h - 12} PM';
+                  return BarTooltipItem(
+                    '$label\n${rod.toY.toInt()} tx',
+                    const TextStyle(color: Colors.white, fontSize: 12),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Payment Method Pie Chart ──────────────────────────────────────────────
+  Widget _buildPaymentPie() {
+    final data = _revenueByPayment();
+    if (data.isEmpty) return const SizedBox.shrink();
+    final total = data.values.fold<double>(0, (s, v) => s + v);
+    final entries = data.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final sections = List.generate(entries.length, (i) {
+      final isTouched = _touchedPaymentIndex == i;
+      final pct = total > 0 ? entries[i].value / total * 100 : 0.0;
+      return PieChartSectionData(
+        value: entries[i].value,
+        title: isTouched ? '${pct.toStringAsFixed(1)}%' : '',
+        color: _colorAt(i),
+        radius: isTouched ? 72 : 60,
+        titleStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
+      );
+    });
+
+    return _chartCard(
+      title: 'Revenue by Payment Method',
+      subtitle: 'Tap a slice to see the percentage',
+      child: Column(
+        children: [
+          SizedBox(
+            height: 200,
+            child: PieChart(
+              PieChartData(
+                sections: sections,
+                pieTouchData: PieTouchData(
+                  touchCallback: (event, response) {
+                    setState(() {
+                      if (!event.isInterestedForInteractions ||
+                          response == null ||
+                          response.touchedSection == null) {
+                        _touchedPaymentIndex = null;
+                        return;
+                      }
+                      _touchedPaymentIndex =
+                          response.touchedSection!.touchedSectionIndex;
+                    });
+                  },
+                ),
+                sectionsSpace: 2,
+                centerSpaceRadius: 40,
+                borderData: FlBorderData(show: false),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 6,
+            children: List.generate(entries.length, (i) {
+              final pct = total > 0 ? entries[i].value / total * 100 : 0.0;
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: _colorAt(i),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${entries[i].key} (${pct.toStringAsFixed(0)}%)',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                ],
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Top Services Bar Chart ────────────────────────────────────────────────
+  Widget _buildTopServicesChart() {
+    final services = _topServices();
+    if (services.isEmpty) return const SizedBox.shrink();
+    final maxVal = services.first.value;
+
+    return _chartCard(
+      title: 'Top Services by Revenue',
+      subtitle: 'Up to 8 services',
+      child: Column(
+        children: List.generate(services.length, (i) {
+          final pct = maxVal > 0 ? services[i].value / maxVal : 0.0;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: _colorAt(i),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        services[i].key,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      widget.currency.format(services[i].value),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: _colorAt(i),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: pct,
+                    minHeight: 7,
+                    backgroundColor: Colors.grey.shade100,
+                    color: _colorAt(i),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  // ── Technician Revenue Bar Chart ──────────────────────────────────────────
+  Widget _buildTechChart() {
+    final data = _revenueByTech();
+    if (data.isEmpty) return const SizedBox.shrink();
+    final sorted = data.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final maxVal = sorted.first.value;
+
+    return _chartCard(
+      title: 'Revenue by Technician',
+      subtitle: 'Sorted by highest earnings',
+      child: Column(
+        children: List.generate(sorted.length, (i) {
+          final pct = maxVal > 0 ? sorted[i].value / maxVal : 0.0;
+          final name = sorted[i].key;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 14,
+                  backgroundColor: _colorAt(i).withOpacity(0.15),
+                  child: Text(
+                    name.isNotEmpty ? name[0].toUpperCase() : '?',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: _colorAt(i),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              name,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            widget.currency.format(sorted[i].value),
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.teal,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: pct,
+                          minHeight: 6,
+                          backgroundColor: Colors.grey.shade100,
+                          color: _colorAt(i),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  // ── New vs Returning Customers Donut ─────────────────────────────────────
+  Widget _buildCustomerMixChart() {
+    final customerMap = {for (final c in widget.customers) c.id: c};
+    int newCount = 0;
+    int returningCount = 0;
+    int walkInCount = 0;
+    final seenCustomers = <String>{};
+
+    for (final tx in widget.transactions) {
+      if (tx.status == TransactionStatus.voided) continue;
+      final cid = tx.customerId;
+      if (cid == null || cid.isEmpty) {
+        walkInCount++;
+        continue;
+      }
+      if (seenCustomers.contains(cid)) continue;
+      seenCustomers.add(cid);
+      final cust = customerMap[cid];
+      final isNew =
+          cust != null &&
+          !cust.createdAt.isBefore(
+            DateTime(
+              widget.startDate.year,
+              widget.startDate.month,
+              widget.startDate.day,
+            ),
+          ) &&
+          !cust.createdAt.isAfter(
+            DateTime(
+              widget.endDate.year,
+              widget.endDate.month,
+              widget.endDate.day,
+              23,
+              59,
+              59,
+            ),
+          );
+      if (isNew) {
+        newCount++;
+      } else {
+        returningCount++;
+      }
+    }
+
+    final total = newCount + returningCount + walkInCount;
+    if (total == 0) return const SizedBox.shrink();
+
+    final items = [
+      if (newCount > 0) MapEntry('New', newCount.toDouble()),
+      if (returningCount > 0) MapEntry('Returning', returningCount.toDouble()),
+      if (walkInCount > 0) MapEntry('Walk-in', walkInCount.toDouble()),
+    ];
+    final colors = [
+      Colors.green.shade400,
+      Colors.blue.shade400,
+      Colors.orange.shade400,
+    ];
+
+    final sections = List.generate(items.length, (i) {
+      final isTouched = _touchedCustomerIndex == i;
+      final pct = items[i].value / total * 100;
+      return PieChartSectionData(
+        value: items[i].value,
+        title: isTouched ? '${pct.toStringAsFixed(1)}%' : '',
+        color: colors[i],
+        radius: isTouched ? 70 : 58,
+        titleStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
+      );
+    });
+
+    return _chartCard(
+      title: 'Customer Mix',
+      subtitle: 'New vs returning vs walk-in (unique customers)',
+      child: Column(
+        children: [
+          SizedBox(
+            height: 180,
+            child: PieChart(
+              PieChartData(
+                sections: sections,
+                pieTouchData: PieTouchData(
+                  touchCallback: (event, response) {
+                    setState(() {
+                      if (!event.isInterestedForInteractions ||
+                          response == null ||
+                          response.touchedSection == null) {
+                        _touchedCustomerIndex = null;
+                        return;
+                      }
+                      _touchedCustomerIndex =
+                          response.touchedSection!.touchedSectionIndex;
+                    });
+                  },
+                ),
+                sectionsSpace: 2,
+                centerSpaceRadius: 36,
+                borderData: FlBorderData(show: false),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(items.length, (i) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: colors[i],
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${items[i].key}: ${items[i].value.toInt()}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Average Ticket Size KPI ───────────────────────────────────────────────
+  Widget _buildKpiRow() {
+    final paid = widget.transactions
+        .where((t) => t.status == TransactionStatus.paid)
+        .toList();
+    final totalRevenue = paid.fold<double>(0, (s, t) => s + t.totalAmount);
+    final avgTicket = paid.isNotEmpty ? totalRevenue / paid.length : 0.0;
+    final totalItems = paid.fold<int>(
+      0,
+      (s, t) => s + t.items.fold(0, (ss, i) => ss + i.quantity),
+    );
+    final avgItems = paid.isNotEmpty ? totalItems / paid.length : 0.0;
+    final uniqueCustomers = paid
+        .map((t) => t.customerId ?? '__walkin_${t.id}')
+        .toSet()
+        .length;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          _KpiCard(
+            label: 'Avg Ticket',
+            value: widget.currency.format(avgTicket),
+            icon: Icons.receipt_outlined,
+            color: Colors.blue,
+          ),
+          _KpiCard(
+            label: 'Avg Services/Visit',
+            value: avgItems.toStringAsFixed(1),
+            icon: Icons.spa_outlined,
+            color: Colors.purple,
+          ),
+          _KpiCard(
+            label: 'Unique Customers',
+            value: '$uniqueCustomers',
+            icon: Icons.people_outline,
+            color: Colors.teal,
+          ),
+          _KpiCard(
+            label: 'Paid Transactions',
+            value: '${paid.length}',
+            icon: Icons.check_circle_outline,
+            color: Colors.green,
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.transactions.isEmpty) {
+      return const Center(
+        child: Text(
+          'No transactions found for this period.',
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      children: [
+        _sectionTitle('Key Metrics'),
+        _buildKpiRow(),
+        _buildRevenueChart(),
+        _buildHourlyChart(),
+        _buildPaymentPie(),
+        _buildTopServicesChart(),
+        _buildTechChart(),
+        _buildCustomerMixChart(),
+      ],
+    );
+  }
+}
+
+// ── KPI Card ─────────────────────────────────────────────────────────────────
+class _KpiCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  const _KpiCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 160,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          ),
         ],
       ),
     );
