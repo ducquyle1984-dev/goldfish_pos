@@ -25,6 +25,7 @@ class _LineItem {
   Employee employee;
   int quantity;
   double unitPrice; // allows custom price override
+  final String? itemTypeOverride; // used for special items like gift cards
 
   _LineItem({
     required this.id,
@@ -32,6 +33,7 @@ class _LineItem {
     required this.employee,
     this.quantity = 1,
     required this.unitPrice,
+    this.itemTypeOverride,
   });
 
   double get subtotal => unitPrice * quantity;
@@ -45,7 +47,9 @@ class _LineItem {
     itemPrice: unitPrice,
     quantity: quantity,
     subtotal: subtotal,
-    itemType: item.type == ItemType.product ? 'product' : 'service',
+    itemType:
+        itemTypeOverride ??
+        (item.type == ItemType.product ? 'product' : 'service'),
   );
 }
 
@@ -435,6 +439,30 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
     );
     descCtrl.dispose();
     amtCtrl.dispose();
+  }
+
+  // ── Ensure a transaction document exists (used by gift-card flow) ─────────
+  /// Creates a bare transaction in Firestore if one hasn't been saved yet.
+  /// Does NOT validate line items and does NOT navigate away.
+  Future<void> _ensureTransactionExists() async {
+    if (_savedTransactionId != null && _savedTransactionId!.isNotEmpty) return;
+    final now = DateTime.now();
+    final tx = Transaction(
+      id: '',
+      items: _lineItems.map((l) => l.toTransactionItem()).toList(),
+      customerId: _selectedCustomer?.id,
+      customerName: _selectedCustomer?.name,
+      discounts: _discounts,
+      payments: _payments,
+      status: TransactionStatus.pending,
+      subtotal: _subtotal,
+      totalDiscount: _totalDiscount,
+      totalAmount: _totalAmount,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final newId = await _repo.createTransaction(tx);
+    if (mounted) setState(() => _savedTransactionId = newId);
   }
 
   // ── Save ─────────────────────────────────────────────────────────────────
@@ -2075,7 +2103,7 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
                         // Ensure the transaction exists before adding the item
                         if (_savedTransactionId == null ||
                             _savedTransactionId!.isEmpty) {
-                          await _saveTransaction(asPending: true);
+                          await _ensureTransactionExists();
                         }
                         if (_savedTransactionId == null ||
                             _savedTransactionId!.isEmpty) {
@@ -2136,13 +2164,38 @@ class _TransactionCreateScreenState extends State<TransactionCreateScreen> {
                             ),
                           );
                         }
-                        // Reload the transaction state
+                        // Reload the transaction state and add gift card
+                        // as a local line item so the bill reflects it.
                         final updated = await _repo.getTransaction(
                           _savedTransactionId!,
                         );
                         if (mounted && updated != null) {
+                          final gcItem = Item(
+                            id: 'gift_card_sale',
+                            name: 'Gift Card ($cardId)',
+                            categoryId: '',
+                            type: ItemType.product,
+                            price: amount,
+                            isActive: true,
+                            createdAt: now,
+                            updatedAt: now,
+                          );
+                          final gcEmployee = Employee(
+                            id: '__gift_card_sales__',
+                            name: 'Gift Card Sales',
+                            createdAt: now,
+                            updatedAt: now,
+                          );
                           setState(() {
-                            _lineItems.clear();
+                            _lineItems.add(
+                              _LineItem(
+                                id: now.millisecondsSinceEpoch.toString(),
+                                item: gcItem,
+                                employee: gcEmployee,
+                                unitPrice: amount,
+                                itemTypeOverride: 'gift_card',
+                              ),
+                            );
                             _discounts
                               ..clear()
                               ..addAll(updated.discounts);

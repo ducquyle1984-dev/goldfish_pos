@@ -50,8 +50,10 @@ class _LoginScreenState extends State<LoginScreen>
       _errorMessage = null;
     });
     try {
+      final raw = _emailCtrl.text.trim();
+      final email = raw.contains('@') ? raw : '$raw@goldfish.internal';
       await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: '${_emailCtrl.text.trim()}@goldfish.internal',
+        email: email,
         password: _passCtrl.text.trim(),
       );
     } on FirebaseAuthException catch (e) {
