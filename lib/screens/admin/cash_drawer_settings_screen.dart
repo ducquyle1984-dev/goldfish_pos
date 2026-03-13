@@ -1092,8 +1092,8 @@ if (\$ok) {
     Write-Host ''
     if (Test-Path \$LogDest) {
         \$lines = Get-Content \$LogDest
-        if (\$lines) { \$lines | Select-Object -Last 30 | ForEach-Object { Write-Host "    \$_" } }
-        else { Write-Host '    (log file is empty — Python may have crashed before writing anything)' }
+        if (\$lines) { \$lines | Select-Object -Last 30 | ForEach-Object { Write-Host "    \$_" }
+        } else { Write-Host '    (log file is empty — Python may have crashed before writing anything)' }
     } else {
         Write-Host '    No log file found.'
         Write-Host "    Launcher: \$LauncherDest"
