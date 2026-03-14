@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:goldfish_pos/models/cash_drawer_settings_model.dart';
@@ -350,10 +350,10 @@ class _CashDrawerSettingsScreenState extends State<CashDrawerSettingsScreen> {
             const SizedBox(height: 4),
             const Text(
               'Double-click  run_bridge_debug.bat  (from the Download).\n'
-              'A black window will open showing the exact error.\n\n'
+              'A PowerShell window will open showing the real-time log.\n\n'
               'Common errors:\n'
-              '  "No module named win32print" → re-run install_bridge_service.ps1 as Administrator\n'
-              '  "Address already in use" → another instance is already running (good!)\n'
+              '  "Access is denied" → re-run run_installer.bat as Administrator\n'
+              '  "port already in use" → another instance is already running\n'
               '  "No default printer" → set a default printer in Windows Settings first',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
@@ -770,376 +770,327 @@ class _PrinterPickerDialog extends StatelessWidget {
 // ── Download helper ───────────────────────────────────────────────────────────
 
 void _downloadInstaller(int port) {
-  // ── Python bridge (uses only standard library — no pip / no pywin32) ──────
-  // Raw Dart string: backslashes are literal, $ is not interpolated.
+  // ── PowerShell bridge (no Python, no pip — uses only built-in Windows PowerShell) ──
+  // Dart raw string: $ and backslashes are literal (not interpolated).
   const bridgeScript = r'''
-#!/usr/bin/env python3
-"""
-cash_drawer_bridge.py  —  Goldfish POS Cash Drawer Bridge
-==========================================================
-Uses ONLY Python standard library (ctypes + subprocess).
-NO pip install needed. Works on any Python 3.6+.
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+    Goldfish POS Cash Drawer Bridge  —  PowerShell edition
+    HTTP server on http://127.0.0.1:8765/ — no Python, no pip.
+    Windows PowerShell 5.1 is pre-installed on every Windows 10/11 PC.
+#>
 
-Log: %APPDATA%\GoldfishPOS\bridge.log
-"""
-import sys, json, os, socket, logging, ctypes, ctypes.wintypes as wt, subprocess
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
-PREFERRED_PORT = 8765
-PRINTER_NAME   = ""   # blank = Windows default printer
-KICK_COMMAND   = bytes([0x1B, 0x70, 0x00, 0x19, 0xFA])
-_CREATE_NO_WND = 0x08000000
-
-
-def _find_free_port(preferred):
-    for p in [preferred] + [x for x in range(8765, 8780) if x != preferred]:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(('127.0.0.1', p)); return p
-        except OSError:
-            pass
-    return preferred
-
-
-_app_dir  = os.path.join(os.environ.get('APPDATA', os.path.dirname(os.path.abspath(__file__))), 'GoldfishPOS')
-_log_path = os.path.join(_app_dir, 'bridge.log')
-os.makedirs(_app_dir, exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s  %(levelname)-7s  %(message)s',
-    handlers=[
-        logging.FileHandler(_log_path, encoding='utf-8'),
-        logging.StreamHandler(sys.stdout),
-    ],
+param(
+    [int]   $Port        = 8765,
+    [string]$PrinterName = ''
 )
-log = logging.getLogger('bridge')
 
-PORT = _find_free_port(PREFERRED_PORT)
-if PORT != PREFERRED_PORT:
-    log.warning('Port %d in use; using %d instead.', PREFERRED_PORT, PORT)
+$KickCommand = [byte[]](0x1B, 0x70, 0x00, 0x19, 0xFA)
 
-_winspool = ctypes.WinDLL('winspool.drv', use_last_error=True)
+$AppDir  = Join-Path $env:APPDATA 'GoldfishPOS'
+$null    = New-Item -ItemType Directory -Force -Path $AppDir
+$LogFile = Join-Path $AppDir 'bridge.log'
 
+function Write-Log {
+    param([string]$Level, [string]$Msg)
+    $entry = '{0}  {1,-7}  {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $Msg
+    Add-Content -Path $LogFile -Value $entry -Encoding UTF8
+    Write-Host $entry
+}
 
-class _DocInfo1(ctypes.Structure):
-    _fields_ = [('pDocName', wt.LPCWSTR), ('pOutputFile', wt.LPCWSTR), ('pDatatype', wt.LPCWSTR)]
+Add-Type -Language CSharp -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
 
+public static class WinSpool {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct DOC_INFO_1 { public string pDocName; public string pOutputFile; public string pDatatype; }
 
-def _get_default_printer():
-    size = wt.DWORD(0)
-    _winspool.GetDefaultPrinterW(None, ctypes.byref(size))
-    if size.value == 0:
-        raise RuntimeError('No default printer set. Go to Windows Settings -> Printers & scanners.')
-    buf = ctypes.create_unicode_buffer(size.value)
-    if not _winspool.GetDefaultPrinterW(buf, ctypes.byref(size)):
-        raise RuntimeError(f'GetDefaultPrinterW failed (error {ctypes.get_last_error()})')
-    return buf.value
+    [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool OpenPrinter(string szPrinter, out IntPtr hPrinter, IntPtr pDefault);
+    [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern int StartDocPrinter(IntPtr hPrinter, int Level, ref DOC_INFO_1 info);
+    [DllImport("winspool.drv", SetLastError = true)]
+    static extern bool StartPagePrinter(IntPtr hPrinter);
+    [DllImport("winspool.drv", SetLastError = true)]
+    static extern bool WritePrinter(IntPtr hPrinter, byte[] pBuf, int cbBuf, out int pcWritten);
+    [DllImport("winspool.drv", SetLastError = true)]
+    static extern bool EndPagePrinter(IntPtr hPrinter);
+    [DllImport("winspool.drv", SetLastError = true)]
+    static extern int EndDocPrinter(IntPtr hPrinter);
+    [DllImport("winspool.drv", SetLastError = true)]
+    static extern bool ClosePrinter(IntPtr hPrinter);
+    [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool GetDefaultPrinter(StringBuilder pszBuffer, ref int pcchBuffer);
 
+    public static string GetDefaultPrinterName() {
+        int size = 256; var buf = new StringBuilder(size);
+        if (!GetDefaultPrinter(buf, ref size))
+            throw new Exception("No default printer configured. Set one in Windows Settings -> Printers & scanners.");
+        return buf.ToString();
+    }
+    public static void SendRaw(string printerName, byte[] data) {
+        IntPtr hPrinter;
+        if (!OpenPrinter(printerName, out hPrinter, IntPtr.Zero))
+            throw new Exception(string.Format("OpenPrinter(\"{0}\") failed — error {1}. Is the printer installed?", printerName, Marshal.GetLastWin32Error()));
+        try {
+            var doc = new DOC_INFO_1 { pDocName = "GoldfishPOS", pDatatype = "RAW" };
+            int job = StartDocPrinter(hPrinter, 1, ref doc);
+            if (job == 0) throw new Exception("StartDocPrinter failed: " + Marshal.GetLastWin32Error());
+            try { StartPagePrinter(hPrinter); int w; WritePrinter(hPrinter, data, data.Length, out w); EndPagePrinter(hPrinter); }
+            finally { EndDocPrinter(hPrinter); }
+        } finally { ClosePrinter(hPrinter); }
+    }
+}
+'@ -ErrorAction Stop
 
-def _send_raw(printer_name, data):
-    handle = wt.HANDLE()
-    if not _winspool.OpenPrinterW(printer_name, ctypes.byref(handle), None):
-        raise RuntimeError(
-            f'OpenPrinter("{printer_name}") failed — error {ctypes.get_last_error()}. '
-            f'Is the printer installed and the name spelled correctly?'
-        )
-    try:
-        doc = _DocInfo1(pDocName='GoldfishPOS', pOutputFile=None, pDatatype='RAW')
-        job = _winspool.StartDocPrinterW(handle, 1, ctypes.byref(doc))
-        if job == 0:
-            raise RuntimeError(f'StartDocPrinter failed — error {ctypes.get_last_error()}')
-        try:
-            _winspool.StartPagePrinter(handle)
-            buf = (ctypes.c_char * len(data))(*data)
-            written = wt.DWORD(0)
-            _winspool.WritePrinter(handle, buf, wt.DWORD(len(data)), ctypes.byref(written))
-            _winspool.EndPagePrinter(handle)
-        finally:
-            _winspool.EndDocPrinter(handle)
-    finally:
-        _winspool.ClosePrinter(handle)
+function Get-PrinterNameToUse {
+    if ($PrinterName) { return $PrinterName }
+    return [WinSpool]::GetDefaultPrinterName()
+}
 
+function Invoke-OpenDrawer {
+    try {
+        $name = Get-PrinterNameToUse
+        Write-Log 'INFO' "Opening drawer via printer: $name"
+        [WinSpool]::SendRaw($name, $KickCommand)
+        Write-Log 'INFO' 'Drawer opened OK.'
+        return @{ ok = $true; message = 'ok' }
+    } catch {
+        $msg = $_.Exception.Message
+        Write-Log 'ERROR' "open_drawer: $msg"
+        return @{ ok = $false; message = $msg }
+    }
+}
 
-def open_drawer():
-    try:
-        printer = PRINTER_NAME or _get_default_printer()
-        log.info('Opening drawer — printer: %s', printer)
-        _send_raw(printer, KICK_COMMAND)
-        log.info('Drawer opened OK.')
-        return True, 'ok'
-    except Exception as e:
-        log.error('open_drawer: %s', e)
-        return False, str(e)
+function Get-PrinterList {
+    try { return @{ ok = $true; printers = @(Get-Printer | Select-Object -ExpandProperty Name) } }
+    catch { Write-Log 'ERROR' "get_printers: $($_.Exception.Message)"; return @{ ok = $true; printers = @() } }
+}
 
+function Invoke-PrintReceipt {
+    param($Data)
+    try {
+        $printerName = if ($Data.printer) { "$($Data.printer)" } else { Get-PrinterNameToUse }
+        [byte]$ESC = 0x1B; [byte]$GS = 0x1D; [byte]$LF = 0x0A
+        $INIT = [byte[]]($ESC,0x40); $LEFT=[byte[]]($ESC,0x61,0x00); $CTR=[byte[]]($ESC,0x61,0x01); $RIGHT=[byte[]]($ESC,0x61,0x02)
+        $BON=[byte[]]($ESC,0x45,0x01); $BOFF=[byte[]]($ESC,0x45,0x00)
+        $SZ1=[byte[]]($GS,0x21,0x00); $SZ2=[byte[]]($GS,0x21,0x11)
+        $CUT=[byte[]]($GS,0x56,0x41,0x00)
+        $SEP=[System.Text.Encoding]::ASCII.GetBytes(('-'*42))
+        $out=[System.Collections.Generic.List[byte]]::new(); $out.AddRange($INIT)
+        foreach ($ln in @($Data.lines)) {
+            if ($ln.cut)       { $out.AddRange($CUT); continue }
+            if ($ln.separator) { $out.AddRange($LEFT); $out.AddRange($SZ1); $out.AddRange($BOFF); $out.AddRange($SEP); $out.Add($LF); continue }
+            switch ("$($ln.align)") { 'center'{$out.AddRange($CTR)} 'right'{$out.AddRange($RIGHT)} default{$out.AddRange($LEFT)} }
+            if (($ln.size -as [int]) -ge 2) { $out.AddRange($SZ2) } else { $out.AddRange($SZ1) }
+            if ($ln.bold -eq $true) { $out.AddRange($BON) } else { $out.AddRange($BOFF) }
+            $out.AddRange([System.Text.Encoding]::UTF8.GetBytes(if ($ln.text) { "$($ln.text)" } else { '' }))
+            $out.Add($LF)
+        }
+        $out.AddRange($LEFT); $out.AddRange($SZ1); $out.AddRange($BOFF)
+        [WinSpool]::SendRaw($printerName, $out.ToArray())
+        Write-Log 'INFO' "Receipt printed OK on $printerName"
+        return @{ ok = $true; message = 'ok' }
+    } catch {
+        $msg = $_.Exception.Message; Write-Log 'ERROR' "print_receipt: $msg"
+        return @{ ok = $false; message = $msg }
+    }
+}
 
-def get_printers():
-    try:
-        r = subprocess.run(
-            ['powershell', '-NoProfile', '-NonInteractive', '-Command',
-             'Get-Printer | Select-Object -ExpandProperty Name'],
-            capture_output=True, text=True, timeout=10, creationflags=_CREATE_NO_WND,
-        )
-        return [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
-    except Exception as e:
-        log.error('get_printers: %s', e)
-        return []
+function Send-JsonResponse {
+    param($Context, [int]$StatusCode, $Body)
+    $json = ConvertTo-Json $Body -Compress -Depth 10
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+    $res = $Context.Response
+    $res.StatusCode = $StatusCode; $res.ContentType = 'application/json'; $res.ContentLength64 = $bytes.LongLength
+    $res.Headers.Add('Access-Control-Allow-Origin','*')
+    $res.Headers.Add('Access-Control-Allow-Methods','GET, POST, OPTIONS')
+    $res.Headers.Add('Access-Control-Allow-Headers','Content-Type')
+    $res.OutputStream.Write($bytes,0,$bytes.Length); $res.OutputStream.Close()
+}
 
+Write-Log 'INFO' ('='*55)
+Write-Log 'INFO' 'Goldfish POS Cash Drawer Bridge  (PowerShell — no Python needed)'
+Write-Log 'INFO' "Port : $Port  |  Log : $LogFile"
+Write-Log 'INFO' ('='*55)
 
-def print_receipt(data):
-    try:
-        printer_name = data.get('printer') or PRINTER_NAME or _get_default_printer()
-        ESC = 0x1B; GS = 0x1D; LF = bytes([0x0A])
-        INIT  = bytes([ESC, 0x40]);  LEFT  = bytes([ESC, 0x61, 0x00])
-        CTR   = bytes([ESC, 0x61, 0x01]); RIGHT = bytes([ESC, 0x61, 0x02])
-        BON   = bytes([ESC, 0x45, 0x01]); BOFF  = bytes([ESC, 0x45, 0x00])
-        SZ1   = bytes([GS, 0x21, 0x00]);  SZ2   = bytes([GS, 0x21, 0x11])
-        CUT   = bytes([GS, 0x56, 0x41, 0x00])
-        SEP   = ('-' * 42).encode('ascii') + LF
-        out   = bytearray(INIT)
-        for line in data.get('lines', []):
-            if line.get('cut'):       out += CUT; continue
-            if line.get('separator'): out += LEFT + SZ1 + BOFF + SEP; continue
-            a = line.get('align', 'left')
-            out += CTR if a == 'center' else (RIGHT if a == 'right' else LEFT)
-            out += SZ2 if line.get('size', 1) >= 2 else SZ1
-            out += BON if line.get('bold') else BOFF
-            out += line.get('text', '').encode('utf-8', errors='replace') + LF
-        out += LEFT + SZ1 + BOFF
-        _send_raw(printer_name, bytes(out))
-        log.info('Receipt printed OK on %s', printer_name)
-        return True, 'ok'
-    except Exception as e:
-        log.error('print_receipt: %s', e)
-        return False, str(e)
+$listener = [System.Net.HttpListener]::new()
+$listener.Prefixes.Add("http://127.0.0.1:$Port/")
+try {
+    $listener.Start()
+    Write-Log 'INFO' "Listening on http://127.0.0.1:$Port/"
+} catch {
+    Write-Log 'ERROR' "Cannot start listener on port $Port`: $($_.Exception.Message)"
+    Write-Log 'ERROR' 'Re-run run_installer.bat as Administrator to fix the URL reservation.'
+    exit 1
+}
 
-
-class _Handler(BaseHTTPRequestHandler):
-    def log_message(self, fmt, *a): log.debug(fmt, *a)
-    def _cors(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-    def do_OPTIONS(self):
-        self.send_response(204); self._cors(); self.end_headers()
-    def _json(self, code, body_dict):
-        body = json.dumps(body_dict).encode()
-        self.send_response(code); self._cors()
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', str(len(body)))
-        self.end_headers(); self.wfile.write(body)
-    def do_GET(self):
-        if self.path == '/status':
-            self._json(200, {'ok': True, 'service': 'Goldfish POS Cash Drawer Bridge', 'port': PORT, 'log': _log_path})
-        elif self.path == '/printers':
-            self._json(200, {'ok': True, 'printers': get_printers()})
-        else:
-            self.send_response(404); self.end_headers()
-    def do_POST(self):
-        if self.path == '/open-drawer':
-            ok, msg = open_drawer()
-            self._json(200 if ok else 500, {'ok': ok, 'message': msg})
-        elif self.path == '/print':
-            length = int(self.headers.get('Content-Length', 0))
-            try: data = json.loads(self.rfile.read(length))
-            except Exception: self.send_response(400); self.end_headers(); return
-            ok, msg = print_receipt(data)
-            self._json(200 if ok else 500, {'ok': ok, 'message': msg})
-        else:
-            self.send_response(404); self.end_headers()
-
-
-if __name__ == '__main__':
-    log.info('=' * 55)
-    log.info('Goldfish POS Cash Drawer Bridge  (ctypes — no pip needed)')
-    log.info('Port : %d  |  Log : %s', PORT, _log_path)
-    log.info('=' * 55)
-    try:
-        HTTPServer(('127.0.0.1', PORT), _Handler).serve_forever()
-    except OSError as e:
-        log.critical('Cannot bind port %d: %s', PORT, e); sys.exit(1)
-    except KeyboardInterrupt:
-        log.info('Stopped.'); sys.exit(0)
-    except Exception as e:
-        log.critical('Fatal: %s', e, exc_info=True); sys.exit(1)
+try {
+    while ($listener.IsListening) {
+        $ctx = $listener.GetContext(); $req = $ctx.Request
+        $method = $req.HttpMethod; $path = $req.Url.AbsolutePath
+        if ($method -eq 'OPTIONS') {
+            $ctx.Response.StatusCode = 204
+            $ctx.Response.Headers.Add('Access-Control-Allow-Origin','*')
+            $ctx.Response.Headers.Add('Access-Control-Allow-Methods','GET, POST, OPTIONS')
+            $ctx.Response.Headers.Add('Access-Control-Allow-Headers','Content-Type')
+            $ctx.Response.OutputStream.Close(); continue
+        }
+        if     ($method -eq 'GET'  -and $path -eq '/status')       { Send-JsonResponse $ctx 200 @{ ok=$true; service='Goldfish POS Cash Drawer Bridge'; port=$Port; log=$LogFile } }
+        elseif ($method -eq 'GET'  -and $path -eq '/printers')     { Send-JsonResponse $ctx 200 (Get-PrinterList) }
+        elseif ($method -eq 'POST' -and $path -eq '/open-drawer')  { $r=Invoke-OpenDrawer; Send-JsonResponse $ctx (if($r.ok){200}else{500}) $r }
+        elseif ($method -eq 'POST' -and $path -eq '/print') {
+            try {
+                $data = ([System.IO.StreamReader]::new($req.InputStream,[System.Text.Encoding]::UTF8)).ReadToEnd() | ConvertFrom-Json
+                $r = Invoke-PrintReceipt $data; Send-JsonResponse $ctx (if($r.ok){200}else{500}) $r
+            } catch { $ctx.Response.StatusCode=400; $ctx.Response.OutputStream.Close() }
+        }
+        else { $ctx.Response.StatusCode=404; $ctx.Response.OutputStream.Close() }
+    }
+} catch { Write-Log 'ERROR' "Fatal: $($_.Exception.Message)"
+} finally { $listener.Stop(); Write-Log 'INFO' 'Bridge stopped.' }
 ''';
 
-  // ── PowerShell installer (simplified — no pip, no pywin32) ───────────────
-  final installer =
-      """
+  // ── PowerShell installer (no Python lookup at all) ────────────────────────
+  const installer = r'''
 #Requires -Version 5.1
 <#
   Goldfish POS — Cash Drawer Bridge Installer
-  No pip install needed. Requires Python 3.6+ from python.org.
-  Safe to re-run — updates the existing setup.
+  No Python needed. Uses built-in Windows PowerShell only.
+  Safe to re-run — updates the existing setup automatically.
 #>
-\$ErrorActionPreference = 'Stop'
 
-# ── Elevate to Administrator (UAC prompt) ─────────────────────────────────────
+$ErrorActionPreference = 'Stop'
+
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host '  Requesting administrator rights...' -ForegroundColor Yellow
-    Start-Process PowerShell -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"\$PSCommandPath`"" -Wait
+    Start-Process PowerShell -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Wait
     exit
 }
 
-\$TaskName     = 'GoldfishPOS_CashDrawerBridge'
-\$AppDir       = "\$env:APPDATA\\GoldfishPOS"
-\$ScriptSrc    = Join-Path \$PSScriptRoot 'cash_drawer_bridge.py'
-\$ScriptDest   = Join-Path \$AppDir 'cash_drawer_bridge.py'
-\$LauncherDest = Join-Path \$AppDir 'run_bridge.bat'
-\$LogDest      = Join-Path \$AppDir 'bridge.log'
+$TaskName   = 'GoldfishPOS_CashDrawerBridge'
+$AppDir     = "$env:APPDATA\GoldfishPOS"
+$BridgeName = 'cash_drawer_bridge.ps1'
+$BridgeSrc  = Join-Path $PSScriptRoot $BridgeName
+$BridgeDest = Join-Path $AppDir $BridgeName
+$LogDest    = Join-Path $AppDir 'bridge.log'
 
-function Write-Step { param(\$m) Write-Host "  >> \$m" -ForegroundColor Cyan }
-function Write-Ok   { param(\$m) Write-Host "  OK  \$m" -ForegroundColor Green }
-function Write-Warn { param(\$m) Write-Host "  !!  \$m" -ForegroundColor Yellow }
-function Write-Err  { param(\$m) Write-Host "\`n  ERROR: \$m\`n" -ForegroundColor Red; Read-Host 'Press Enter to close'; exit 1 }
+function Write-Step { param($m) Write-Host "  >> $m" -ForegroundColor Cyan }
+function Write-Ok   { param($m) Write-Host "  OK  $m" -ForegroundColor Green }
+function Write-Warn { param($m) Write-Host "  !!  $m" -ForegroundColor Yellow }
+function Write-Err  { param($m) Write-Host "`n  ERROR: $m`n" -ForegroundColor Red; Read-Host 'Press Enter to close'; exit 1 }
 
 Write-Host ''
-Write-Host '==================================================' -ForegroundColor Cyan
-Write-Host '   Goldfish POS  Cash Drawer Bridge Installer     ' -ForegroundColor Cyan
-Write-Host '   No pip install needed (standard library only)  ' -ForegroundColor Cyan
-Write-Host '==================================================' -ForegroundColor Cyan
+Write-Host '=================================================' -ForegroundColor Cyan
+Write-Host '  Goldfish POS  Cash Drawer Bridge Installer     ' -ForegroundColor Cyan
+Write-Host '  No Python needed  (PowerShell built-in only)   ' -ForegroundColor Cyan
+Write-Host '=================================================' -ForegroundColor Cyan
 Write-Host ''
 
-# ── 1. Find Python ────────────────────────────────────────────────────────────
-Write-Step 'Looking for Python 3...'
-\$pythonExe = \$null
-try { \$pythonExe = (Get-Command python.exe -ErrorAction Stop).Source } catch {}
-if (-not \$pythonExe) {
-    foreach (\$g in @(
-        "\$env:LOCALAPPDATA\\Programs\\Python\\Python3*\\python.exe",
-        'C:\\Python3*\\python.exe',
-        'C:\\Program Files\\Python3*\\python.exe',
-        'C:\\Program Files (x86)\\Python3*\\python.exe'
-    )) {
-        \$hit = Get-Item \$g -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
-        if (\$hit) { \$pythonExe = \$hit.FullName; break }
-    }
+# 1. Copy bridge
+Write-Step "Installing bridge to: $AppDir"
+if (-not (Test-Path $BridgeSrc)) {
+    Write-Err "$BridgeName not found next to this installer.`nMake sure both files are in the same folder."
 }
-if (-not \$pythonExe) {
-    Write-Err 'Python 3 not found.`nInstall from https://python.org  (check "Add Python to PATH")  then re-run.'
-}
-# Reject Microsoft Store Python — it is a stub shell that cannot run scripts reliably
-if (\$pythonExe -like '*WindowsApps*') {
-    Write-Err "Found Microsoft Store Python at:\`n  \$pythonExe\`n\`nThis version is NOT compatible.\`nPlease install Python from https://python.org (check Add to PATH), then re-run."
-}
-\$pyVer = & \$pythonExe --version 2>&1
-Write-Ok "Python: \$pythonExe  (\$pyVer)"
+New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
+Copy-Item $BridgeSrc $BridgeDest -Force
+Write-Ok "Bridge: $BridgeDest"
 
-# ── 2. Verify standard library modules ───────────────────────────────────────
-Write-Step 'Verifying required modules (standard library only)...'
-\$check = & \$pythonExe -c "import ctypes, ctypes.wintypes, subprocess, socket, json, logging; print('ok')" 2>&1
-if ("\$check".Trim() -ne 'ok') {
-    Write-Err "Standard library check failed:\`n\$check\`n\`nTry a fresh Python install from https://python.org"
-}
-Write-Ok 'All modules present — no pip install needed.'
+# 2. Reserve HTTP namespace (allows non-admin bridge to use HttpListener)
+Write-Step 'Reserving HTTP namespace for port 8765...'
+netsh http delete urlacl url='http://127.0.0.1:8765/' 2>&1 | Out-Null
+$r = netsh http add urlacl url='http://127.0.0.1:8765/' user="$env:USERDOMAIN\$env:USERNAME" 2>&1
+if ($LASTEXITCODE -ne 0) { Write-Warn "URL reservation skipped (non-critical): $r" }
+else { Write-Ok "HTTP namespace reserved for $env:USERNAME" }
 
-# ── 3. Install files ──────────────────────────────────────────────────────────
-Write-Step "Installing to: \$AppDir"
-if (-not (Test-Path \$ScriptSrc)) {
-    Write-Err "cash_drawer_bridge.py not found next to this installer.\`nMake sure both files are in the same folder."
-}
-New-Item -ItemType Directory -Force -Path \$AppDir | Out-Null
-Copy-Item \$ScriptSrc \$ScriptDest -Force
-Write-Ok "Script copied to: \$ScriptDest"
-
-# Launcher .bat — redirects stdout+stderr to bridge.log
-\$bat = "@echo off\`r\`n\`"\$pythonExe\`" \`"\$ScriptDest\`" >> \`"\$LogDest\`" 2>&1\`r\`n"
-[System.IO.File]::WriteAllText(\$LauncherDest, \$bat, [System.Text.Encoding]::ASCII)
-Write-Ok "Launcher: \$LauncherDest"
-
-# ── 4. Register Windows startup task ─────────────────────────────────────────
+# 3. Register startup task
 Write-Step 'Registering Windows startup task...'
-Unregister-ScheduledTask -TaskName \$TaskName -Confirm:\$false -ErrorAction SilentlyContinue | Out-Null
-\$action    = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"\$LauncherDest`""
-\$trigger   = New-ScheduledTaskTrigger -AtLogOn -User \$env:USERNAME
-\$settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -RestartCount 10 \`
-              -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew -StartWhenAvailable
-\$principal = New-ScheduledTaskPrincipal -UserId "\$env:USERDOMAIN\\\$env:USERNAME" -LogonType Interactive
-Register-ScheduledTask -TaskName \$TaskName -Action \$action -Trigger \$trigger \`
-    -Settings \$settings -Principal \$principal -Force | Out-Null
-Write-Ok "Task '\$TaskName' registered (runs at every logon)."
+Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+$action    = New-ScheduledTaskAction -Execute 'PowerShell.exe' -Argument "-NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$BridgeDest`""
+$trigger   = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew -StartWhenAvailable
+$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
+Write-Ok "Task '$TaskName' registered (runs at every logon)."
 
-# ── 5. Kill old instance + start fresh ───────────────────────────────────────
+# 4. Kill old bridge + start fresh
 Write-Step 'Starting the bridge...'
+Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' OR Name = 'pwsh.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like '*cash_drawer_bridge*' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Get-CimInstance Win32_Process -Filter "Name LIKE 'python%'" -ErrorAction SilentlyContinue |
-    Where-Object { \$_.CommandLine -like '*cash_drawer_bridge*' } |
-    ForEach-Object { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Where-Object { $_.CommandLine -like '*cash_drawer_bridge*' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Milliseconds 500
-if (Test-Path \$LogDest) { Clear-Content \$LogDest }
-Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"\$LauncherDest`"" -WindowStyle Hidden
-Start-Sleep -Seconds 4
+if (Test-Path $LogDest) { Clear-Content $LogDest }
+Start-Process -FilePath 'PowerShell.exe' -ArgumentList "-NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$BridgeDest`"" -WindowStyle Hidden
+Start-Sleep -Seconds 5
 
-# ── 6. Verify ─────────────────────────────────────────────────────────────────
-Write-Step 'Checking http://127.0.0.1:$port/status ...'
-\$ok = \$false
-for (\$i = 0; \$i -lt 5; \$i++) {
+# 5. Verify
+Write-Step 'Verifying bridge at http://127.0.0.1:8765/status ...'
+$ok = $false
+for ($i = 0; $i -lt 5; $i++) {
     try {
-        \$r = Invoke-WebRequest -Uri 'http://127.0.0.1:$port/status' -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
-        if (\$r.StatusCode -eq 200) { \$ok = \$true; break }
+        $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:8765/status' -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        if ($resp.StatusCode -eq 200) { $ok = $true; break }
     } catch {}
-    Write-Host "    attempt \$(\$i+1)/5 — waiting..."
+    Write-Host "    attempt $($i+1)/5 — waiting..."
     Start-Sleep -Seconds 2
 }
 
 Write-Host ''
-if (\$ok) {
-    Write-Host '==================================================' -ForegroundColor Green
-    Write-Host '  SUCCESS!  Bridge is running.                    ' -ForegroundColor Green
-    Write-Host '  Go back to the POS app and click Refresh.       ' -ForegroundColor Green
-    Write-Host '==================================================' -ForegroundColor Green
+if ($ok) {
+    Write-Host '=================================================' -ForegroundColor Green
+    Write-Host '  SUCCESS!  Bridge is running.                   ' -ForegroundColor Green
+    Write-Host '  Go back to the POS app and click Refresh.      ' -ForegroundColor Green
+    Write-Host '=================================================' -ForegroundColor Green
 } else {
-    Write-Warn 'Bridge did not respond. Last log output:'
+    Write-Warn 'Bridge did not respond. Log output:'
+    if (Test-Path $LogDest) {
+        $ls = Get-Content $LogDest
+        if ($ls) { $ls | Select-Object -Last 20 | ForEach-Object { Write-Host "    $_" } }
+        else { Write-Host '    (log is empty — bridge may have crashed at startup)' }
+    } else { Write-Host "    No log found at: $LogDest" }
     Write-Host ''
-    if (Test-Path \$LogDest) {
-        \$lines = Get-Content \$LogDest
-        if (\$lines) { \$lines | Select-Object -Last 30 | ForEach-Object { Write-Host "    \$_" }
-        } else { Write-Host '    (log file is empty — Python may have crashed before writing anything)' }
-    } else {
-        Write-Host '    No log file found.'
-        Write-Host "    Launcher: \$LauncherDest"
-        Write-Host "    Python:   \$pythonExe"
-    }
-    Write-Host ''
-    Write-Warn 'Run  run_bridge_debug.bat  (from the Download folder) to see the error live.'
+    Write-Warn 'Run  run_bridge_debug.bat  to see the error in real time.'
+    Write-Warn 'Common fix: re-run this installer as Administrator.'
 }
 Write-Host ''
 Read-Host 'Press Enter to close'
-""";
+''';
 
-  final debugBat = '''@echo off
+  const debugBat = '''@echo off
 echo Goldfish POS Cash Drawer Bridge - Debug Mode
 echo =============================================
 echo Errors will be shown here. Press Ctrl+C to stop.
 echo.
-set PYFILE=%APPDATA%\\GoldfishPOS\\cash_drawer_bridge.py
-if not exist "%PYFILE%" (
-    if exist "%~dp0cash_drawer_bridge.py" (
-        echo Using cash_drawer_bridge.py from this folder.
-        echo.
-        set PYFILE=%~dp0cash_drawer_bridge.py
+set PSFILE=%APPDATA%\\GoldfishPOS\\cash_drawer_bridge.ps1
+if not exist "%PSFILE%" (
+    if exist "%~dp0cash_drawer_bridge.ps1" (
+        set PSFILE=%~dp0cash_drawer_bridge.ps1
     ) else (
-        echo ERROR: cash_drawer_bridge.py not found.
-        echo.
-        echo Run install_bridge_service.ps1 first, or place
-        echo cash_drawer_bridge.py in the same folder as this bat.
-        echo.
+        echo ERROR: cash_drawer_bridge.ps1 not found.
+        echo Run the installer first, or place cash_drawer_bridge.ps1 here.
         pause
         exit /b 1
     )
 )
-python "%PYFILE%"
+PowerShell.exe -NoProfile -ExecutionPolicy Bypass -File "%PSFILE%"
 echo.
-echo Bridge stopped.
-pause
+echo Bridge stopped. Press any key to close.
+pause >nul
 ''';
 
-  final runInstallerBat =
+  const runInstallerBat =
       '@echo off\r\n'
-      'echo Running Goldfish POS Cash Drawer Installer...\r\n'
-      'PowerShell -ExecutionPolicy Bypass -File "%~dp0install_bridge_service.ps1"\r\n'
+      'echo Goldfish POS Cash Drawer Bridge Installer\r\n'
+      'echo ==========================================\r\n'
+      'PowerShell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0install_bridge_service.ps1"\r\n'
       'if %ERRORLEVEL% NEQ 0 pause\r\n';
 
-  downloadTextFile('cash_drawer_bridge.py', bridgeScript);
+  downloadTextFile('cash_drawer_bridge.ps1', bridgeScript);
   downloadTextFile('install_bridge_service.ps1', installer);
   downloadTextFile('run_bridge_debug.bat', debugBat);
   downloadTextFile('run_installer.bat', runInstallerBat);
