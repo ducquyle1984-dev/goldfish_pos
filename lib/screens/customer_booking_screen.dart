@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:goldfish_pos/models/appointment_model.dart';
 import 'package:goldfish_pos/models/booking_settings_model.dart';
+import 'package:goldfish_pos/models/employee_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 import 'package:intl/intl.dart';
 
@@ -28,6 +29,8 @@ class _CustomerBookingScreenState extends State<CustomerBookingScreen> {
   final _phoneCtrl = TextEditingController();
   String? _selectedService;
   final _notesCtrl = TextEditingController();
+  List<Employee> _employees = [];
+  String? _requestedTechnicianId;
   bool _submitting = false;
   Appointment? _bookedAppt;
 
@@ -42,6 +45,7 @@ class _CustomerBookingScreenState extends State<CustomerBookingScreen> {
 
   Future<void> _loadSettings() async {
     final s = await _repo.getBookingSettings();
+    final employees = await _repo.getEmployees().first;
     if (mounted) {
       setState(() {
         _settings = s;
@@ -49,6 +53,7 @@ class _CustomerBookingScreenState extends State<CustomerBookingScreen> {
         if (s.onlineServices.isNotEmpty) {
           _selectedService = s.onlineServices.first;
         }
+        _employees = employees.where((e) => e.isActive).toList();
       });
     }
   }
@@ -123,6 +128,10 @@ class _CustomerBookingScreenState extends State<CustomerBookingScreen> {
       status: AppointmentStatus.pendingConfirmation,
       source: AppointmentSource.online,
       notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      requestedTechnicianId: _requestedTechnicianId,
+      requestedTechnicianName: _requestedTechnicianId == null
+          ? null
+          : _employees.firstWhere((e) => e.id == _requestedTechnicianId).name,
       createdAt: now,
       updatedAt: now,
     );
@@ -494,6 +503,27 @@ class _CustomerBookingScreenState extends State<CustomerBookingScreen> {
             prefixIcon: Icon(Icons.notes_outlined),
           ),
         ),
+        const SizedBox(height: 12),
+        if (_employees.isNotEmpty)
+          DropdownButtonFormField<String?>(
+            value: _requestedTechnicianId,
+            decoration: const InputDecoration(
+              labelText: 'Requested Technician (optional)',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.person_pin_outlined),
+            ),
+            items: [
+              const DropdownMenuItem<String?>(
+                value: null,
+                child: Text('No Preference'),
+              ),
+              ..._employees.map(
+                (e) =>
+                    DropdownMenuItem<String?>(value: e.id, child: Text(e.name)),
+              ),
+            ],
+            onChanged: (v) => setState(() => _requestedTechnicianId = v),
+          ),
         const SizedBox(height: 24),
         SizedBox(
           width: double.infinity,
@@ -576,6 +606,13 @@ class _CustomerBookingScreenState extends State<CustomerBookingScreen> {
                 Icons.access_time,
                 DateFormat.jm().format(appt.scheduledAt),
               ),
+              if (appt.requestedTechnicianName != null) ...[
+                const SizedBox(height: 6),
+                _ConfirmRow(
+                  Icons.person_pin_outlined,
+                  'Requested: ${appt.requestedTechnicianName}',
+                ),
+              ],
             ],
           ),
         ),
@@ -589,6 +626,7 @@ class _CustomerBookingScreenState extends State<CustomerBookingScreen> {
               _nameCtrl.clear();
               _phoneCtrl.clear();
               _notesCtrl.clear();
+              _requestedTechnicianId = null;
               _bookedAppt = null;
             });
           },

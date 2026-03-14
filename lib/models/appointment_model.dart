@@ -21,6 +21,8 @@ class Appointment {
   final AppointmentStatus status;
   final AppointmentSource source;
   final String? notes;
+  final String? requestedTechnicianId;
+  final String? requestedTechnicianName;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -34,6 +36,8 @@ class Appointment {
     this.status = AppointmentStatus.confirmed,
     this.source = AppointmentSource.staff,
     this.notes,
+    this.requestedTechnicianId,
+    this.requestedTechnicianName,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -85,6 +89,8 @@ class Appointment {
     AppointmentStatus? status,
     AppointmentSource? source,
     String? notes,
+    String? requestedTechnicianId,
+    String? requestedTechnicianName,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -98,6 +104,10 @@ class Appointment {
       status: status ?? this.status,
       source: source ?? this.source,
       notes: notes ?? this.notes,
+      requestedTechnicianId:
+          requestedTechnicianId ?? this.requestedTechnicianId,
+      requestedTechnicianName:
+          requestedTechnicianName ?? this.requestedTechnicianName,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -125,6 +135,8 @@ class Appointment {
         orElse: () => AppointmentSource.staff,
       ),
       notes: d['notes'],
+      requestedTechnicianId: d['requestedTechnicianId'],
+      requestedTechnicianName: d['requestedTechnicianName'],
       createdAt: (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (d['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -140,6 +152,8 @@ class Appointment {
       'status': status.name,
       'source': source.name,
       'notes': notes,
+      'requestedTechnicianId': requestedTechnicianId,
+      'requestedTechnicianName': requestedTechnicianName,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
     };

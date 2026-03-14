@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:goldfish_pos/models/appointment_model.dart';
 import 'package:goldfish_pos/models/booking_settings_model.dart';
+import 'package:goldfish_pos/models/employee_model.dart';
 import 'package:goldfish_pos/repositories/pos_repository.dart';
 
 /// Opens the quick booking dialog and returns the created [Appointment],
@@ -34,6 +35,8 @@ class _QuickBookDialogState extends State<_QuickBookDialog> {
 
   BookingSettings? _settings;
   String? _selectedService;
+  List<Employee> _employees = [];
+  String? _requestedTechnicianId;
   late DateTime _selectedDate;
   TimeOfDay _selectedTime = const TimeOfDay(hour: 10, minute: 0);
   int _durationMinutes = 60;
@@ -48,6 +51,7 @@ class _QuickBookDialogState extends State<_QuickBookDialog> {
 
   Future<void> _loadSettings() async {
     final s = await _repo.getBookingSettings();
+    final employees = await _repo.getEmployees().first;
     if (mounted) {
       setState(() {
         _settings = s;
@@ -56,6 +60,7 @@ class _QuickBookDialogState extends State<_QuickBookDialog> {
           _selectedService = s.onlineServices.first;
         }
         _durationMinutes = s.slotDurationMinutes;
+        _employees = employees.where((e) => e.isActive).toList();
       });
     }
   }
@@ -109,6 +114,10 @@ class _QuickBookDialogState extends State<_QuickBookDialog> {
       status: AppointmentStatus.confirmed,
       source: AppointmentSource.staff,
       notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      requestedTechnicianId: _requestedTechnicianId,
+      requestedTechnicianName: _requestedTechnicianId == null
+          ? null
+          : _employees.firstWhere((e) => e.id == _requestedTechnicianId).name,
       createdAt: now,
       updatedAt: now,
     );
@@ -366,6 +375,32 @@ class _QuickBookDialogState extends State<_QuickBookDialog> {
                     border: OutlineInputBorder(),
                   ),
                 ),
+                const SizedBox(height: 12),
+
+                // Technician (optional)
+                if (_employees.isNotEmpty)
+                  DropdownButtonFormField<String?>(
+                    value: _requestedTechnicianId,
+                    decoration: const InputDecoration(
+                      labelText: 'Requested Technician (optional)',
+                      prefixIcon: Icon(Icons.person_pin_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text('No Preference'),
+                      ),
+                      ..._employees.map(
+                        (e) => DropdownMenuItem<String?>(
+                          value: e.id,
+                          child: Text(e.name),
+                        ),
+                      ),
+                    ],
+                    onChanged: (v) =>
+                        setState(() => _requestedTechnicianId = v),
+                  ),
                 const SizedBox(height: 8),
               ],
             ),
